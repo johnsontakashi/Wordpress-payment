@@ -68,7 +68,8 @@ class WC_Monarch_ACH_Gateway_Plugin {
             
             wp_localize_script('wc-monarch-ach', 'monarch_ach_params', array(
                 'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('monarch_ach_nonce')
+                'nonce' => wp_create_nonce('monarch_ach_nonce'),
+                'test_mode' => get_option('woocommerce_monarch_ach_settings')['testmode'] ?? 'yes'
             ));
         }
     }
