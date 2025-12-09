@@ -50,28 +50,8 @@ class WC_Monarch_ACH_Gateway_Plugin {
     }
     
     public function enqueue_scripts() {
-        if (is_checkout() || is_account_page()) {
-            wp_enqueue_script(
-                'wc-monarch-ach',
-                WC_MONARCH_ACH_PLUGIN_URL . 'assets/js/monarch-ach.js',
-                array('jquery', 'wc-checkout'),
-                WC_MONARCH_ACH_VERSION,
-                true
-            );
-            
-            wp_enqueue_style(
-                'wc-monarch-ach',
-                WC_MONARCH_ACH_PLUGIN_URL . 'assets/css/monarch-ach.css',
-                array(),
-                WC_MONARCH_ACH_VERSION
-            );
-            
-            wp_localize_script('wc-monarch-ach', 'monarch_ach_params', array(
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('monarch_ach_nonce'),
-                'test_mode' => get_option('woocommerce_monarch_ach_settings')['testmode'] ?? 'yes'
-            ));
-        }
+        // Scripts are now handled by the gateway's payment_scripts() method
+        // This ensures proper loading only when the gateway is available and enabled
     }
     
     public function activate() {

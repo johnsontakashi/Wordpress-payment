@@ -135,6 +135,27 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         if (empty($this->api_key) || empty($this->app_id)) {
             return;
         }
+        
+        wp_enqueue_script(
+            'wc-monarch-ach',
+            WC_MONARCH_ACH_PLUGIN_URL . 'assets/js/monarch-ach.js',
+            array('jquery', 'wc-checkout'),
+            WC_MONARCH_ACH_VERSION,
+            true
+        );
+        
+        wp_enqueue_style(
+            'wc-monarch-ach',
+            WC_MONARCH_ACH_PLUGIN_URL . 'assets/css/monarch-ach.css',
+            array(),
+            WC_MONARCH_ACH_VERSION
+        );
+        
+        wp_localize_script('wc-monarch-ach', 'monarch_ach_params', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('monarch_ach_nonce'),
+            'test_mode' => $this->testmode ? 'yes' : 'no'
+        ));
     }
     
     public function payment_fields() {
