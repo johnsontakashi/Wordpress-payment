@@ -158,6 +158,30 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         ));
     }
     
+    public function is_available() {
+        // Check if gateway is enabled
+        if ('yes' !== $this->enabled) {
+            return false;
+        }
+        
+        // Check if required API credentials are configured
+        if (empty($this->api_key) || empty($this->app_id)) {
+            return false;
+        }
+        
+        // Check if merchant org ID is configured
+        if (empty($this->merchant_org_id)) {
+            return false;
+        }
+        
+        // Check if partner name is configured
+        if (empty($this->partner_name)) {
+            return false;
+        }
+        
+        return parent::is_available();
+    }
+    
     public function payment_fields() {
         if ($this->description) {
             echo '<p>' . wp_kses_post($this->description) . '</p>';
