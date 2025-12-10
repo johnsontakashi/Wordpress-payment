@@ -171,7 +171,7 @@ class Monarch_API {
                 'data' => $decoded_body
             );
         } else {
-            $error = $decoded_body['message'] ?? 'API request failed';
+            $error = $decoded_body['error']['message'] ?? $decoded_body['message'] ?? 'API request failed';
             $logger->log_api_error($url, $error, $status_code);
             return array(
                 'success' => false,

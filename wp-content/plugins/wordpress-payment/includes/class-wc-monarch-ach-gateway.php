@@ -283,13 +283,12 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
 
             // If not, run the full 4-endpoint flow
             if (!$org_id || !$paytoken_id) {
-                // Format phone and DOB
                 $phone = preg_replace('/[^0-9]/', '', sanitize_text_field($_POST['monarch_phone']));
                 $phone = substr($phone, -10);
                 $dob = date('m/d/Y', strtotime(sanitize_text_field($_POST['monarch_dob'])));
 
                 // Step 1: Create Organization
-                $customer_data = array(
+                $org_result = $monarch_api->create_organization(array(
                     'first_name' => $order->get_billing_first_name(),
                     'last_name' => $order->get_billing_last_name(),
                     'email' => $order->get_billing_email(),
@@ -303,38 +302,35 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                     'state' => $order->get_billing_state(),
                     'zip' => $order->get_billing_postcode(),
                     'country' => $order->get_billing_country()
-                );
-
-                $org_result = $monarch_api->create_organization($customer_data);
+                ));
                 if (!$org_result['success']) {
-                    throw new Exception('Organization creation failed: ' . $org_result['error']);
+                    throw new Exception('Step 1 failed: ' . $org_result['error']);
                 }
-
                 $user_id = $org_result['data']['_id'];
                 $org_id = $org_result['data']['orgId'];
+                $order->add_order_note('Step 1: Organization created - orgId: ' . $org_id);
 
                 // Step 2: Create PayToken
-                $bank_data = array(
+                $paytoken_result = $monarch_api->create_paytoken($user_id, array(
                     'bank_name' => sanitize_text_field($_POST['monarch_bank_name']),
                     'account_number' => sanitize_text_field($_POST['monarch_account']),
                     'routing_number' => sanitize_text_field($_POST['monarch_routing']),
                     'account_type' => sanitize_text_field($_POST['monarch_account_type'])
-                );
-
-                $paytoken_result = $monarch_api->create_paytoken($user_id, $bank_data);
+                ));
                 if (!$paytoken_result['success']) {
-                    throw new Exception('PayToken creation failed: ' . $paytoken_result['error']);
+                    throw new Exception('Step 2 failed: ' . $paytoken_result['error']);
                 }
-
-                $paytoken_id = $paytoken_result['data']['_id'];
+                $paytoken_id = $paytoken_result['data']['payToken'];
+                $order->add_order_note('Step 2: PayToken created - payToken: ' . $paytoken_id);
 
                 // Step 3: Assign PayToken to Organization
                 $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
                 if (!$assign_result['success']) {
-                    throw new Exception('PayToken assignment failed: ' . $assign_result['error']);
+                    throw new Exception('Step 3 failed: ' . $assign_result['error']);
                 }
+                $order->add_order_note('Step 3: PayToken assigned to organization');
 
-                // Save to user meta for future orders
+                // Save to user meta
                 if ($customer_id) {
                     update_user_meta($customer_id, '_monarch_org_id', $org_id);
                     update_user_meta($customer_id, '_monarch_user_id', $user_id);
@@ -343,17 +339,16 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             }
 
             // Step 4: Create Sale Transaction
-            $transaction_data = array(
+            $transaction_result = $monarch_api->create_sale_transaction(array(
                 'amount' => $order->get_total(),
                 'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id,
                 'comment' => 'Order #' . $order_id . ' - ' . get_bloginfo('name')
-            );
-
-            $transaction_result = $monarch_api->create_sale_transaction($transaction_data);
+            ));
             if (!$transaction_result['success']) {
-                throw new Exception('Transaction failed: ' . $transaction_result['error']);
+                throw new Exception('Step 4 failed: ' . $transaction_result['error']);
             }
+            $order->add_order_note('Step 4: Transaction created - ID: ' . ($transaction_result['data']['id'] ?? 'N/A'));
 
             // Save transaction data
             $this->save_transaction_data($order_id, $transaction_result['data'], $org_id, $paytoken_id);
