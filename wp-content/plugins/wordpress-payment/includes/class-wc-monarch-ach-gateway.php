@@ -246,34 +246,50 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     }
     
     public function validate_fields() {
+        // Log validation attempt for debugging
+        error_log('Monarch ACH: validate_fields called');
+        error_log('Monarch ACH: POST data: ' . print_r($_POST, true));
+        
         $customer_id = get_current_user_id();
         $monarch_org_id = get_user_meta($customer_id, '_monarch_org_id', true);
         
         if ($monarch_org_id) {
+            error_log('Monarch ACH: Customer already has org_id: ' . $monarch_org_id);
             return true; // Customer already registered
         }
         
         // Check if bank connection was completed via embedded modal
         if (isset($_POST['bank_connected']) && $_POST['bank_connected'] === 'true') {
             if (empty($_POST['monarch_org_id']) || empty($_POST['monarch_paytoken_id'])) {
+                error_log('Monarch ACH: Bank connected but missing org_id or paytoken_id');
                 wc_add_notice('Bank account connection incomplete. Please complete the bank linking process.', 'error');
                 return false;
             }
+            error_log('Monarch ACH: Bank connection validated successfully');
+            return true;
+        }
+        
+        // For Store API (block checkout), allow validation to pass if required fields exist
+        if (wp_doing_ajax() && isset($_REQUEST['wc-ajax']) && $_REQUEST['wc-ajax'] === 'checkout') {
+            error_log('Monarch ACH: Block checkout detected, allowing validation');
             return true;
         }
         
         // If not connected, require basic customer info for organization creation
         if (empty($_POST['monarch_phone'])) {
+            error_log('Monarch ACH: Missing phone number');
             wc_add_notice('Phone number is required.', 'error');
             return false;
         }
         
         if (empty($_POST['monarch_dob'])) {
+            error_log('Monarch ACH: Missing date of birth');
             wc_add_notice('Date of birth is required.', 'error');
             return false;
         }
         
         // If we reach here, bank connection is required
+        error_log('Monarch ACH: Bank connection required');
         wc_add_notice('Please connect your bank account to continue with payment.', 'error');
         return false;
     }
