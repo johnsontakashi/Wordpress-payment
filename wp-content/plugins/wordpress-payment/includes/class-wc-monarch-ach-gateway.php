@@ -164,6 +164,11 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             return false;
         }
         
+        // For Store API, don't block on missing credentials
+        if (defined('REST_REQUEST') && REST_REQUEST) {
+            return parent::is_available();
+        }
+        
         // Check if required API credentials are configured
         if (empty($this->api_key) || empty($this->app_id)) {
             return false;
@@ -201,46 +206,38 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         
         ?>
         <div id="monarch-ach-form">
-            <p><strong>Bank Account Connection</strong></p>
-            <p>Connect your bank account securely using our embedded banking portal.</p>
-            
-            <!-- Customer Information for Organization Creation -->
-            <div id="monarch-customer-info">
-                <p class="form-row form-row-first">
-                    <label for="monarch_phone">Phone Number <span class="required">*</span></label>
-                    <input id="monarch_phone" name="monarch_phone" type="tel" required>
-                </p>
-                
-                <p class="form-row form-row-last">
-                    <label for="monarch_company">Company Name</label>
-                    <input id="monarch_company" name="monarch_company" type="text">
-                </p>
-                
-                <p class="form-row">
-                    <label for="monarch_dob">Date of Birth <span class="required">*</span></label>
-                    <input id="monarch_dob" name="monarch_dob" type="date" required>
-                </p>
-                
-                <div class="clear"></div>
-                
-                <p>
-                    <button type="button" id="connect-bank-account" class="button button-primary">
-                        Connect Bank Account
-                    </button>
-                    <span class="spinner" id="bank-connect-spinner" style="display: none;"></span>
-                </p>
-            </div>
-            
-            <!-- Hidden fields to store connection status -->
-            <input type="hidden" id="monarch_org_id" name="monarch_org_id" value="">
-            <input type="hidden" id="monarch_paytoken_id" name="monarch_paytoken_id" value="">
-            <input type="hidden" id="bank_connected" name="bank_connected" value="false">
-            
-            <div id="bank-connection-status" style="display: none;">
-                <p><strong>✓ Bank account successfully connected!</strong></p>
-            </div>
-            
-            <div id="monarch-ach-errors" style="display:none; color: red; margin: 10px 0;"></div>
+            <p class="form-row form-row-wide">
+                <label for="monarch_phone">Phone Number <span class="required">*</span></label>
+                <input id="monarch_phone" name="monarch_phone" type="tel" required>
+            </p>
+
+            <p class="form-row form-row-wide">
+                <label for="monarch_dob">Date of Birth <span class="required">*</span></label>
+                <input id="monarch_dob" name="monarch_dob" type="date" required>
+            </p>
+
+            <p class="form-row form-row-wide">
+                <label for="monarch_routing">Routing Number <span class="required">*</span></label>
+                <input id="monarch_routing" name="monarch_routing" type="text" maxlength="9" required>
+            </p>
+
+            <p class="form-row form-row-wide">
+                <label for="monarch_account">Account Number <span class="required">*</span></label>
+                <input id="monarch_account" name="monarch_account" type="text" required>
+            </p>
+
+            <p class="form-row form-row-wide">
+                <label for="monarch_account_type">Account Type <span class="required">*</span></label>
+                <select id="monarch_account_type" name="monarch_account_type" required>
+                    <option value="CHECKING">Checking</option>
+                    <option value="SAVINGS">Savings</option>
+                </select>
+            </p>
+
+            <p class="form-row form-row-wide">
+                <label for="monarch_bank_name">Bank Name <span class="required">*</span></label>
+                <input id="monarch_bank_name" name="monarch_bank_name" type="text" required>
+            </p>
         </div>
         <?php
     }
@@ -248,46 +245,29 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     public function validate_fields() {
         $customer_id = get_current_user_id();
         $monarch_org_id = get_user_meta($customer_id, '_monarch_org_id', true);
-        
+        $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
+
         // If customer already has bank account connected, allow payment
-        if ($monarch_org_id) {
+        if ($monarch_org_id && $paytoken_id) {
             return true;
         }
-        
-        // Check if this is Store API (block checkout) - allow it to pass validation
-        if (defined('REST_REQUEST') && REST_REQUEST) {
-            return true;
-        }
-        
-        // Check if bank connection was completed via embedded modal
-        if (isset($_POST['bank_connected']) && $_POST['bank_connected'] === 'true') {
-            if (empty($_POST['monarch_org_id']) || empty($_POST['monarch_paytoken_id'])) {
-                wc_add_notice('Bank account connection incomplete. Please complete the bank linking process.', 'error');
+
+        // Validate required fields
+        $required = ['monarch_phone', 'monarch_dob', 'monarch_routing', 'monarch_account', 'monarch_bank_name'];
+        foreach ($required as $field) {
+            if (empty($_POST[$field])) {
+                wc_add_notice(ucfirst(str_replace('monarch_', '', $field)) . ' is required.', 'error');
                 return false;
             }
-            return true;
         }
-        
-        // For traditional checkout, require customer info
-        if (empty($_POST['monarch_phone'])) {
-            wc_add_notice('Phone number is required.', 'error');
-            return false;
-        }
-        
-        if (empty($_POST['monarch_dob'])) {
-            wc_add_notice('Date of birth is required.', 'error');
-            return false;
-        }
-        
-        // Bank connection required for traditional checkout
-        wc_add_notice('Please connect your bank account to continue with payment.', 'error');
-        return false;
+
+        return true;
     }
     
     public function process_payment($order_id) {
         $order = wc_get_order($order_id);
         $customer_id = $order->get_user_id();
-        
+
         try {
             $monarch_api = new Monarch_API(
                 $this->api_key,
@@ -296,62 +276,99 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 $this->partner_name,
                 $this->testmode
             );
-            
-            // Get organization and paytoken IDs from form submission or user meta
-            $monarch_org_id = !empty($_POST['monarch_org_id']) ? 
-                sanitize_text_field($_POST['monarch_org_id']) : 
-                get_user_meta($customer_id, '_monarch_org_id', true);
-                
-            $paytoken_id = !empty($_POST['monarch_paytoken_id']) ? 
-                sanitize_text_field($_POST['monarch_paytoken_id']) : 
-                get_user_meta($customer_id, '_monarch_paytoken_id', true);
-            
-            if (!$monarch_org_id || !$paytoken_id) {
-                throw new Exception('Bank account not connected. Please complete the bank linking process.');
+
+            // Check if user already has org_id and paytoken_id
+            $org_id = get_user_meta($customer_id, '_monarch_org_id', true);
+            $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
+
+            // If not, run the full 4-endpoint flow
+            if (!$org_id || !$paytoken_id) {
+                // Format phone and DOB
+                $phone = preg_replace('/[^0-9]/', '', sanitize_text_field($_POST['monarch_phone']));
+                $phone = substr($phone, -10);
+                $dob = date('m/d/Y', strtotime(sanitize_text_field($_POST['monarch_dob'])));
+
+                // Step 1: Create Organization
+                $customer_data = array(
+                    'first_name' => $order->get_billing_first_name(),
+                    'last_name' => $order->get_billing_last_name(),
+                    'email' => $order->get_billing_email(),
+                    'password' => wp_generate_password(12, false),
+                    'phone' => $phone,
+                    'company_name' => $order->get_billing_company(),
+                    'dob' => $dob,
+                    'address_1' => $order->get_billing_address_1(),
+                    'address_2' => $order->get_billing_address_2(),
+                    'city' => $order->get_billing_city(),
+                    'state' => $order->get_billing_state(),
+                    'zip' => $order->get_billing_postcode(),
+                    'country' => $order->get_billing_country()
+                );
+
+                $org_result = $monarch_api->create_organization($customer_data);
+                if (!$org_result['success']) {
+                    throw new Exception('Organization creation failed: ' . $org_result['error']);
+                }
+
+                $user_id = $org_result['data']['_id'];
+                $org_id = $org_result['data']['orgId'];
+
+                // Step 2: Create PayToken
+                $bank_data = array(
+                    'bank_name' => sanitize_text_field($_POST['monarch_bank_name']),
+                    'account_number' => sanitize_text_field($_POST['monarch_account']),
+                    'routing_number' => sanitize_text_field($_POST['monarch_routing']),
+                    'account_type' => sanitize_text_field($_POST['monarch_account_type'])
+                );
+
+                $paytoken_result = $monarch_api->create_paytoken($user_id, $bank_data);
+                if (!$paytoken_result['success']) {
+                    throw new Exception('PayToken creation failed: ' . $paytoken_result['error']);
+                }
+
+                $paytoken_id = $paytoken_result['data']['_id'];
+
+                // Step 3: Assign PayToken to Organization
+                $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
+                if (!$assign_result['success']) {
+                    throw new Exception('PayToken assignment failed: ' . $assign_result['error']);
+                }
+
+                // Save to user meta for future orders
+                if ($customer_id) {
+                    update_user_meta($customer_id, '_monarch_org_id', $org_id);
+                    update_user_meta($customer_id, '_monarch_user_id', $user_id);
+                    update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
+                }
             }
-            
-            // Process the transaction
+
+            // Step 4: Create Sale Transaction
             $transaction_data = array(
                 'amount' => $order->get_total(),
-                'org_id' => $monarch_org_id,
+                'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id,
                 'comment' => 'Order #' . $order_id . ' - ' . get_bloginfo('name')
             );
-            
+
             $transaction_result = $monarch_api->create_sale_transaction($transaction_data);
-            
             if (!$transaction_result['success']) {
-                throw new Exception($transaction_result['error']);
+                throw new Exception('Transaction failed: ' . $transaction_result['error']);
             }
-            
+
             // Save transaction data
-            $this->save_transaction_data($order_id, $transaction_result['data'], $monarch_org_id, $paytoken_id);
-            
-            // Save bank account info to user meta for future use
-            if ($customer_id) {
-                update_user_meta($customer_id, '_monarch_org_id', $monarch_org_id);
-                update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-            }
-            
-            // Log transaction
-            $logger = WC_Monarch_Logger::instance();
-            $logger->log_transaction('payment_processed', $order_id, $transaction_result['data']);
-            
-            // Mark order as processing
+            $this->save_transaction_data($order_id, $transaction_result['data'], $org_id, $paytoken_id);
+
             $order->payment_complete();
-            $order->add_order_note('ACH payment processed via Monarch API. Transaction ID: ' . ($transaction_result['data']['id'] ?? 'N/A'));
-            
+            $order->add_order_note('ACH payment processed. Transaction ID: ' . ($transaction_result['data']['id'] ?? 'N/A'));
+
             return array(
                 'result' => 'success',
                 'redirect' => $this->get_return_url($order)
             );
-            
+
         } catch (Exception $e) {
             wc_add_notice('Payment failed: ' . $e->getMessage(), 'error');
-            return array(
-                'result' => 'fail',
-                'redirect' => ''
-            );
+            return array('result' => 'fail', 'redirect' => '');
         }
     }
     
@@ -479,14 +496,20 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             $current_user = wp_get_current_user();
             
             // Prepare customer data
+            $phone = preg_replace('/[^0-9]/', '', sanitize_text_field($_POST['monarch_phone']));
+            $phone = substr($phone, -10); // Last 10 digits
+
+            $dob_raw = sanitize_text_field($_POST['monarch_dob']);
+            $dob = date('m/d/Y', strtotime($dob_raw)); // Convert to mm/dd/yyyy
+
             $customer_data = array(
                 'first_name' => $current_user->user_firstname ?: sanitize_text_field($_POST['billing_first_name']),
                 'last_name' => $current_user->user_lastname ?: sanitize_text_field($_POST['billing_last_name']),
                 'email' => $current_user->user_email,
-                'password' => wp_generate_password(),
-                'phone' => sanitize_text_field($_POST['monarch_phone']),
+                'password' => wp_generate_password(12, false),
+                'phone' => $phone,
                 'company_name' => sanitize_text_field($_POST['monarch_company']),
-                'dob' => sanitize_text_field($_POST['monarch_dob']),
+                'dob' => $dob,
                 'address_1' => sanitize_text_field($_POST['billing_address_1']),
                 'address_2' => sanitize_text_field($_POST['billing_address_2']),
                 'city' => sanitize_text_field($_POST['billing_city']),
