@@ -151,8 +151,15 @@ if ($result3['http_code'] < 200 || $result3['http_code'] >= 300) {
 
 echo "\n✅ Step 3 SUCCESS - PayToken assigned\n\n";
 
+// Wait a moment for data to propagate
+echo "Waiting 2 seconds for data propagation...\n";
+sleep(2);
+
 // Step 4: Sale Transaction
 echo "--- STEP 4: Sale Transaction ---\n";
+echo "Using orgId: $org_id\n";
+echo "Using payTokenId: $paytoken_id\n";
+echo "Using merchantOrgId: $merchant_org_id\n";
 $sale_data = array(
     'amount' => 1.00,
     'orgId' => $org_id,
@@ -165,6 +172,8 @@ $sale_data = array(
     'taxRemittance' => '',
     'merchantOrgId' => $merchant_org_id
 );
+echo "Request body:\n";
+print_r($sale_data);
 
 $result4 = make_request('POST', $base_url . '/transaction/sale', $sale_data, $api_key, $app_id);
 echo "HTTP: " . $result4['http_code'] . "\n";

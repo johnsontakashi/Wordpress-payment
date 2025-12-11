@@ -159,27 +159,121 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.5);
     z-index: 99999;
+}
+
+.monarch-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.monarch-modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: white;
+    width: 90%;
+    max-width: 900px;
+    height: 85%;
+    max-height: 700px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+
+.monarch-modal-header {
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+    border-radius: 12px 12px 0 0;
+    position: relative;
+}
+
+.monarch-modal-header h3 {
+    margin: 0 0 5px 0;
+    color: #333;
+    font-size: 20px;
+}
+
+.monarch-modal-header p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+.monarch-modal-close {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #999;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s ease;
 }
 
-#bank-connection-modal .modal-content {
-    background: white;
-    width: 90%;
-    max-width: 800px;
-    height: 80%;
-    border-radius: 8px;
-    position: relative;
+.monarch-modal-close:hover {
+    background: #eee;
+    color: #333;
+}
+
+.monarch-modal-body {
+    flex: 1;
     overflow: hidden;
 }
 
-#bank-connection-modal iframe {
+.monarch-modal-body iframe {
     width: 100%;
     height: 100%;
     border: none;
+}
+
+.monarch-modal-footer {
+    padding: 15px 25px;
+    border-top: 1px solid #eee;
+    background: #f8f9fa;
+    border-radius: 0 0 12px 12px;
+    text-align: center;
+}
+
+.monarch-modal-footer p {
+    margin: 0 0 10px 0;
+    color: #666;
+    font-size: 14px;
+}
+
+#monarch-bank-connected-btn {
+    background: #28a745;
+    color: white;
+    padding: 12px 30px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#monarch-bank-connected-btn:hover {
+    background: #218838;
+}
+
+#monarch-bank-connected-btn:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
 }
 
 #close-bank-modal {
@@ -204,6 +298,28 @@
 #close-bank-modal:hover {
     background-color: #f0f0f0;
     color: #333;
+}
+
+/* Connect Bank Account button */
+#monarch-connect-bank {
+    background: #007cba;
+    color: white;
+    padding: 14px 28px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+#monarch-connect-bank:hover {
+    background: #005a87;
+}
+
+#monarch-connect-bank:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
 }
 
 /* Test mode indicator */
