@@ -571,6 +571,18 @@
     font-weight: 500;
 }
 
+/* Manual entry warning */
+.monarch-manual-warning {
+    background: #fff3cd;
+    color: #856404;
+    padding: 12px 15px;
+    border-radius: 6px;
+    border: 1px solid #ffeeba;
+    margin-bottom: 20px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 /* Responsive adjustments for modal */
 @media (max-width: 600px) {
     .monarch-modal-manual-form {

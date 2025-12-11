@@ -153,6 +153,9 @@ jQuery(document).ready(function($) {
             '<div id="modal-manual-section" class="monarch-modal-section" style="display:none;">' +
             '<div class="monarch-modal-manual-form">' +
             '<div class="monarch-manual-form-inner">' +
+            '<div class="monarch-manual-warning">' +
+            '<strong>Note:</strong> Manual bank entry is for testing purposes. For best results, use the Automatic option which securely verifies your bank account.' +
+            '</div>' +
             '<p class="form-row">' +
             '<label for="modal_bank_name">Bank Name <span class="required">*</span></label>' +
             '<input id="modal_bank_name" type="text" placeholder="e.g., Chase, Bank of America">' +

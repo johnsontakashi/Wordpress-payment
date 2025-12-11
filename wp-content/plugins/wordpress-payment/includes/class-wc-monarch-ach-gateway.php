@@ -262,14 +262,6 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         $customer_id = $order->get_user_id();
 
         try {
-            $monarch_api = new Monarch_API(
-                $this->api_key,
-                $this->app_id,
-                $this->merchant_org_id,
-                $this->partner_name,
-                $this->testmode
-            );
-
             // Get verified org_id and paytoken_id from user meta
             $org_id = get_user_meta($customer_id, '_monarch_org_id', true);
             $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
@@ -279,7 +271,26 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 throw new Exception('Please connect your bank account before placing an order.');
             }
 
+            // Get the purchaser org's API credentials (required for sale transactions)
+            $org_api_key = get_user_meta($customer_id, '_monarch_org_api_key', true);
+            $org_app_id = get_user_meta($customer_id, '_monarch_org_app_id', true);
+
+            // Use purchaser org's credentials if available, otherwise fall back to merchant credentials
+            $api_key_for_sale = $org_api_key ?: $this->api_key;
+            $app_id_for_sale = $org_app_id ?: $this->app_id;
+
+            $monarch_api = new Monarch_API(
+                $api_key_for_sale,
+                $app_id_for_sale,
+                $this->merchant_org_id,
+                $this->partner_name,
+                $this->testmode
+            );
+
             $order->add_order_note('Using verified bank account - orgId: ' . $org_id . ', payTokenId: ' . $paytoken_id);
+            if ($org_api_key) {
+                $order->add_order_note('Using purchaser org credentials for transaction');
+            }
 
             // Create Sale Transaction
             $transaction_result = $monarch_api->create_sale_transaction(array(
@@ -479,14 +490,25 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             $customer_id = get_current_user_id();
             update_user_meta($customer_id, '_monarch_temp_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_temp_user_id', $user_id);
-            
+
+            // Store the purchaser org's API credentials for transactions
+            $org_api = $org_result['data']['api'] ?? null;
+            if ($org_api) {
+                $credentials_key = $this->testmode ? 'sandbox' : 'prod';
+                $org_credentials = $org_api[$credentials_key] ?? null;
+                if ($org_credentials) {
+                    update_user_meta($customer_id, '_monarch_temp_org_api_key', $org_credentials['api_key']);
+                    update_user_meta($customer_id, '_monarch_temp_org_app_id', $org_credentials['app_id']);
+                }
+            }
+
             // Log organization creation
             $logger = WC_Monarch_Logger::instance();
             $logger->log_customer_event('organization_created', $customer_id, array(
                 'org_id' => $org_id,
                 'user_id' => $user_id
             ));
-            
+
             wp_send_json_success(array(
                 'org_id' => $org_id,
                 'user_id' => $user_id,
@@ -537,18 +559,28 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
             update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-            
+
+            // Copy temp API credentials to permanent
+            $temp_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
+            $temp_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
+            if ($temp_api_key && $temp_app_id) {
+                update_user_meta($customer_id, '_monarch_org_api_key', $temp_api_key);
+                update_user_meta($customer_id, '_monarch_org_app_id', $temp_app_id);
+            }
+
             // Clean up temporary data
             delete_user_meta($customer_id, '_monarch_temp_org_id');
             delete_user_meta($customer_id, '_monarch_temp_user_id');
-            
+            delete_user_meta($customer_id, '_monarch_temp_org_api_key');
+            delete_user_meta($customer_id, '_monarch_temp_org_app_id');
+
             // Log bank connection
             $logger = WC_Monarch_Logger::instance();
             $logger->log_customer_event('bank_connected', $customer_id, array(
                 'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id
             ));
-            
+
             wp_send_json_success(array(
                 'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id
@@ -642,8 +674,12 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         delete_user_meta($customer_id, '_monarch_org_id');
         delete_user_meta($customer_id, '_monarch_user_id');
         delete_user_meta($customer_id, '_monarch_paytoken_id');
+        delete_user_meta($customer_id, '_monarch_org_api_key');
+        delete_user_meta($customer_id, '_monarch_org_app_id');
         delete_user_meta($customer_id, '_monarch_temp_org_id');
         delete_user_meta($customer_id, '_monarch_temp_user_id');
+        delete_user_meta($customer_id, '_monarch_temp_org_api_key');
+        delete_user_meta($customer_id, '_monarch_temp_org_app_id');
 
         // Log the disconnection
         $logger = WC_Monarch_Logger::instance();
@@ -763,6 +799,18 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
             update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
+
+            // Store the purchaser org's API credentials for transactions
+            // The Monarch API requires using the purchaser's own credentials for sale transactions
+            $org_api = $org_result['data']['api'] ?? null;
+            if ($org_api) {
+                $credentials_key = $this->testmode ? 'sandbox' : 'prod';
+                $org_credentials = $org_api[$credentials_key] ?? null;
+                if ($org_credentials) {
+                    update_user_meta($customer_id, '_monarch_org_api_key', $org_credentials['api_key']);
+                    update_user_meta($customer_id, '_monarch_org_app_id', $org_credentials['app_id']);
+                }
+            }
 
             // Log successful bank connection
             $logger->log_customer_event('bank_connected_manual', $customer_id, array(

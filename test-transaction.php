@@ -68,7 +68,7 @@ $org_data = array(
     'last_name' => $test_customer['last_name'],
     'email' => $test_customer['email'],
     'password' => 'TestPass123',
-    'odfi_endpoint' => 'ODFI180',
+    'odfi_endpoint' => 'ODFI210',
     'orgType' => 'purchaser',
     'originationClient' => 'partner_app',
     'partnerName' => $partner_name,
@@ -98,7 +98,13 @@ if ($result1['http_code'] < 200 || $result1['http_code'] >= 300) {
 
 $user_id = $result1['response']['_id'] ?? null;
 $org_id = $result1['response']['orgId'] ?? null;
-echo "\n✅ Step 1 SUCCESS - user_id: $user_id, org_id: $org_id\n\n";
+
+// Extract the purchaser org's API credentials for the sale transaction
+$org_api_key = $result1['response']['api']['sandbox']['api_key'] ?? null;
+$org_app_id = $result1['response']['api']['sandbox']['app_id'] ?? null;
+
+echo "\n✅ Step 1 SUCCESS - user_id: $user_id, org_id: $org_id\n";
+echo "Purchaser org credentials - api_key: $org_api_key, app_id: $org_app_id\n\n";
 
 // Step 2: Create PayToken
 echo "--- STEP 2: Create PayToken ---\n";
@@ -155,11 +161,14 @@ echo "\n✅ Step 3 SUCCESS - PayToken assigned\n\n";
 echo "Waiting 2 seconds for data propagation...\n";
 sleep(2);
 
-// Step 4: Sale Transaction
+// Step 4: Sale Transaction (using purchaser org's credentials)
 echo "--- STEP 4: Sale Transaction ---\n";
 echo "Using orgId: $org_id\n";
 echo "Using payTokenId: $paytoken_id\n";
 echo "Using merchantOrgId: $merchant_org_id\n";
+echo "Using PURCHASER org credentials (not partner credentials)\n";
+echo "  api_key: $org_api_key\n";
+echo "  app_id: $org_app_id\n";
 $sale_data = array(
     'amount' => 1.00,
     'orgId' => $org_id,
@@ -175,7 +184,8 @@ $sale_data = array(
 echo "Request body:\n";
 print_r($sale_data);
 
-$result4 = make_request('POST', $base_url . '/transaction/sale', $sale_data, $api_key, $app_id);
+// Use the purchaser org's credentials for the sale transaction
+$result4 = make_request('POST', $base_url . '/transaction/sale', $sale_data, $org_api_key, $org_app_id);
 echo "HTTP: " . $result4['http_code'] . "\n";
 print_r($result4['response']);
 

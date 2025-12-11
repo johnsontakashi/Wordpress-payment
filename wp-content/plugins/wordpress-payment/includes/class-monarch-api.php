@@ -31,7 +31,7 @@ class Monarch_API {
             'last_name' => $customer_data['last_name'],
             'email' => $customer_data['email'],
             'password' => $customer_data['password'],
-            'odfi_endpoint' => 'ODFI180',
+            'odfi_endpoint' => 'ODFI210',
             'orgType' => 'purchaser',
             'originationClient' => 'partner_app',
             'partnerName' => $this->partner_name,
