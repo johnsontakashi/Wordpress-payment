@@ -40,6 +40,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         add_action('wp_ajax_nopriv_monarch_create_organization', array($this, 'ajax_create_organization'));
         add_action('wp_ajax_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
         add_action('wp_ajax_nopriv_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
+        add_action('wp_ajax_monarch_disconnect_bank', array($this, 'ajax_disconnect_bank'));
     }
     
     public function init_form_fields() {
@@ -198,9 +199,12 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
         
         if ($monarch_org_id && $paytoken_id) {
+            echo '<div class="monarch-bank-connected">';
             echo '<p><strong>✓ Bank account connected</strong></p>';
+            echo '<p><a href="#" id="monarch-disconnect-bank" class="monarch-disconnect-link">Use a different bank account</a></p>';
             echo '<input type="hidden" name="monarch_org_id" value="' . esc_attr($monarch_org_id) . '">';
             echo '<input type="hidden" name="monarch_paytoken_id" value="' . esc_attr($paytoken_id) . '">';
+            echo '</div>';
             return;
         }
         
@@ -606,5 +610,31 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         } catch (Exception $e) {
             wp_send_json_error('Bank connection completion failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * AJAX handler for disconnecting bank account
+     */
+    public function ajax_disconnect_bank() {
+        check_ajax_referer('monarch_ach_nonce', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error('User must be logged in');
+        }
+
+        $customer_id = get_current_user_id();
+
+        // Delete all Monarch-related user meta
+        delete_user_meta($customer_id, '_monarch_org_id');
+        delete_user_meta($customer_id, '_monarch_user_id');
+        delete_user_meta($customer_id, '_monarch_paytoken_id');
+        delete_user_meta($customer_id, '_monarch_temp_org_id');
+        delete_user_meta($customer_id, '_monarch_temp_user_id');
+
+        // Log the disconnection
+        $logger = WC_Monarch_Logger::instance();
+        $logger->log_customer_event('bank_disconnected', $customer_id, array());
+
+        wp_send_json_success(array('message' => 'Bank account disconnected successfully'));
     }
 }

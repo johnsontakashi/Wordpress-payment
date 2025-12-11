@@ -229,7 +229,44 @@ jQuery(document).ready(function($) {
     function hideError() {
         $('#monarch-ach-errors').hide();
     }
-    
+
+    // Handle disconnect bank account click
+    $(document).on('click', '#monarch-disconnect-bank', function(e) {
+        e.preventDefault();
+
+        if (!confirm('Are you sure you want to disconnect your bank account? You will need to enter your bank details again.')) {
+            return;
+        }
+
+        const $link = $(this);
+        $link.text('Disconnecting...').css('pointer-events', 'none');
+
+        $.ajax({
+            url: monarch_ach_params.ajax_url,
+            method: 'POST',
+            data: {
+                action: 'monarch_disconnect_bank',
+                nonce: monarch_ach_params.nonce
+            },
+            dataType: 'json',
+            success: function(response) {
+                if (response.success) {
+                    // Refresh checkout to show bank entry form
+                    $('body').trigger('update_checkout');
+                    // Reload page to ensure form is fully reset
+                    location.reload();
+                } else {
+                    showError(response.data || 'Failed to disconnect bank account');
+                    $link.text('Use a different bank account').css('pointer-events', 'auto');
+                }
+            },
+            error: function(xhr, status, error) {
+                showError('Connection error: ' + error);
+                $link.text('Use a different bank account').css('pointer-events', 'auto');
+            }
+        });
+    });
+
     // Auto-fill form with test data in development mode
     if (typeof monarch_ach_params !== 'undefined' && monarch_ach_params.test_mode) {
         // Add test data button if in test mode

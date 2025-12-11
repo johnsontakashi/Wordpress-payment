@@ -279,3 +279,27 @@
 .monarch-admin-notice.success {
     border-left-color: #28a745;
 }
+
+/* Bank connected status */
+.monarch-bank-connected {
+    background: #d4edda;
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid #c3e6cb;
+    margin: 10px 0;
+}
+
+.monarch-bank-connected p {
+    margin: 5px 0;
+}
+
+.monarch-disconnect-link {
+    color: #856404;
+    font-size: 13px;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.monarch-disconnect-link:hover {
+    color: #dc3545;
+}
