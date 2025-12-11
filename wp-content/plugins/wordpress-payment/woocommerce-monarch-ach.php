@@ -25,23 +25,88 @@ define('WC_MONARCH_ACH_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('WC_MONARCH_ACH_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 class WC_Monarch_ACH_Gateway_Plugin {
-    
+
+    private static $gateway_instance = null;
+
     public function __construct() {
         add_action('plugins_loaded', array($this, 'init'));
         add_filter('woocommerce_payment_gateways', array($this, 'add_gateway_class'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
         register_activation_hook(__FILE__, array($this, 'activate'));
+
+        // Register AJAX handlers early (before gateway is instantiated)
+        add_action('init', array($this, 'register_ajax_handlers'));
     }
-    
+
     public function init() {
         if (!class_exists('WC_Payment_Gateway')) {
             return;
         }
-        
+
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-logger.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-monarch-api.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-ach-gateway.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-admin.php';
+    }
+
+    /**
+     * Register AJAX handlers
+     */
+    public function register_ajax_handlers() {
+        add_action('wp_ajax_monarch_disconnect_bank', array($this, 'ajax_disconnect_bank'));
+        add_action('wp_ajax_monarch_create_organization', array($this, 'ajax_create_organization'));
+        add_action('wp_ajax_nopriv_monarch_create_organization', array($this, 'ajax_create_organization'));
+        add_action('wp_ajax_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
+        add_action('wp_ajax_nopriv_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
+        add_action('wp_ajax_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
+        add_action('wp_ajax_nopriv_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
+    }
+
+    /**
+     * Get the gateway instance
+     */
+    private function get_gateway() {
+        if (self::$gateway_instance === null) {
+            if (!class_exists('WC_Monarch_ACH_Gateway')) {
+                include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-logger.php';
+                include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-monarch-api.php';
+                include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-ach-gateway.php';
+            }
+            self::$gateway_instance = new WC_Monarch_ACH_Gateway();
+        }
+        return self::$gateway_instance;
+    }
+
+    /**
+     * AJAX handler for disconnecting bank account
+     */
+    public function ajax_disconnect_bank() {
+        $gateway = $this->get_gateway();
+        $gateway->ajax_disconnect_bank();
+    }
+
+    /**
+     * AJAX handler for creating organization
+     */
+    public function ajax_create_organization() {
+        $gateway = $this->get_gateway();
+        $gateway->ajax_create_organization();
+    }
+
+    /**
+     * AJAX handler for bank connection complete
+     */
+    public function ajax_bank_connection_complete() {
+        $gateway = $this->get_gateway();
+        $gateway->ajax_bank_connection_complete();
+    }
+
+    /**
+     * AJAX handler for checking bank status
+     */
+    public function ajax_check_bank_status() {
+        $gateway = $this->get_gateway();
+        $gateway->ajax_check_bank_status();
     }
     
     public function add_gateway_class($gateways) {

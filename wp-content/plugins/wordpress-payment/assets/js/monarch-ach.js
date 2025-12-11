@@ -303,13 +303,22 @@ jQuery(document).ready(function($) {
         let $errorDiv = $('#monarch-ach-errors');
         if (!$errorDiv.length) {
             $errorDiv = $('<div id="monarch-ach-errors" class="woocommerce-error"></div>');
-            $('#monarch-ach-form').prepend($errorDiv);
+            // Try to prepend to form, or to bank-connected div, or to payment method
+            if ($('#monarch-ach-form').length) {
+                $('#monarch-ach-form').prepend($errorDiv);
+            } else if ($('.monarch-bank-connected').length) {
+                $('.monarch-bank-connected').before($errorDiv);
+            } else {
+                $('.payment_method_monarch_ach').append($errorDiv);
+            }
         }
         $errorDiv.html(message).show();
 
-        $('html, body').animate({
-            scrollTop: $errorDiv.offset().top - 100
-        }, 500);
+        if ($errorDiv.length && $errorDiv.offset()) {
+            $('html, body').animate({
+                scrollTop: $errorDiv.offset().top - 100
+            }, 500);
+        }
     }
 
     function hideError() {
@@ -319,6 +328,7 @@ jQuery(document).ready(function($) {
     // Handle disconnect bank account click
     $(document).on('click', '#monarch-disconnect-bank', function(e) {
         e.preventDefault();
+        console.log('Disconnect bank clicked');
 
         if (!confirm('Are you sure you want to disconnect your bank account? You will need to connect again.')) {
             return;
@@ -326,6 +336,8 @@ jQuery(document).ready(function($) {
 
         const $link = $(this);
         $link.text('Disconnecting...').css('pointer-events', 'none');
+
+        console.log('Sending disconnect request to:', monarch_ach_params.ajax_url);
 
         $.ajax({
             url: monarch_ach_params.ajax_url,
@@ -336,6 +348,7 @@ jQuery(document).ready(function($) {
             },
             dataType: 'json',
             success: function(response) {
+                console.log('Disconnect response:', response);
                 if (response.success) {
                     location.reload();
                 } else {
@@ -344,6 +357,7 @@ jQuery(document).ready(function($) {
                 }
             },
             error: function(xhr, status, error) {
+                console.log('Disconnect error:', status, error, xhr.responseText);
                 showError('Connection error: ' + error);
                 $link.text('Use a different bank account').css('pointer-events', 'auto');
             }
