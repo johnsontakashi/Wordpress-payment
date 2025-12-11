@@ -419,3 +419,172 @@
 .monarch-disconnect-link:hover {
     color: #dc3545;
 }
+
+/* Modal Toggle Styles */
+.monarch-modal-toggle {
+    display: flex;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+}
+
+.monarch-modal-method-btn {
+    flex: 1;
+    padding: 15px 20px;
+    border: none;
+    background: transparent;
+    color: #666;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: center;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+}
+
+.monarch-modal-method-btn:hover {
+    color: #007cba;
+    background: #fff;
+}
+
+.monarch-modal-method-btn.active {
+    color: #007cba;
+    background: #fff;
+    border-bottom-color: #007cba;
+}
+
+/* Modal Sections */
+.monarch-modal-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+#modal-auto-section .monarch-modal-body {
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Manual Entry Form in Modal */
+.monarch-modal-manual-form {
+    padding: 30px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.monarch-manual-form-inner {
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.monarch-manual-form-inner .form-row {
+    margin-bottom: 20px;
+}
+
+.monarch-manual-form-inner .form-row label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+}
+
+.monarch-manual-form-inner .form-row input,
+.monarch-manual-form-inner .form-row select {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 15px;
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.monarch-manual-form-inner .form-row input:focus,
+.monarch-manual-form-inner .form-row select:focus {
+    outline: none;
+    border-color: #007cba;
+}
+
+.monarch-manual-form-inner .form-row input.error {
+    border-color: #dc3545;
+    background-color: #fff5f5;
+}
+
+.monarch-manual-form-inner .form-row-half {
+    display: inline-block;
+    width: 48%;
+    vertical-align: top;
+}
+
+.monarch-manual-form-inner .form-row-half:first-of-type {
+    margin-right: 4%;
+}
+
+.monarch-modal-manual-footer {
+    margin-top: 25px;
+    text-align: center;
+}
+
+#monarch-manual-submit-modal {
+    background: #28a745;
+    color: white;
+    padding: 14px 40px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    width: 100%;
+    max-width: 300px;
+}
+
+#monarch-manual-submit-modal:hover {
+    background: #218838;
+}
+
+#monarch-manual-submit-modal:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+}
+
+.monarch-manual-note {
+    margin-top: 20px;
+    text-align: center;
+    color: #666;
+    font-size: 13px;
+}
+
+.monarch-manual-note::before {
+    content: "🔒 ";
+}
+
+/* Modal error message */
+.monarch-modal-error {
+    background: #f8d7da;
+    color: #721c24;
+    padding: 12px;
+    border-radius: 6px;
+    border: 1px solid #f5c6cb;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+/* Responsive adjustments for modal */
+@media (max-width: 600px) {
+    .monarch-modal-manual-form {
+        padding: 20px;
+    }
+
+    .monarch-manual-form-inner .form-row-half {
+        width: 100%;
+        display: block;
+        margin-right: 0;
+    }
+
+    .monarch-modal-method-btn {
+        padding: 12px 15px;
+        font-size: 14px;
+    }
+}
