@@ -457,11 +457,45 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             
             // Create organization
             $org_result = $monarch_api->create_organization($customer_data);
-            
+
+            // Handle "email already in use" error - look up existing organization
             if (!$org_result['success']) {
+                $error_message = strtolower($org_result['error'] ?? '');
+
+                if (strpos($error_message, 'email') !== false && strpos($error_message, 'already') !== false) {
+                    // Try to find existing organization by email
+                    $existing_org = $this->find_organization_by_email($current_user->user_email);
+
+                    if ($existing_org) {
+                        $user_id = $existing_org['_id'] ?? $existing_org['userId'] ?? '';
+                        $org_id = $existing_org['orgId'] ?? '';
+                        $bank_linking_url = $existing_org['partner_embedded_url'] ?? $existing_org['bankLinkingUrl'] ?? '';
+
+                        // Generate bank linking URL if not present
+                        if (empty($bank_linking_url)) {
+                            $bank_linking_url = $this->testmode
+                                ? 'https://dev.monarch.is/link-bank/' . $org_id . '?price={price}&redirectUrl={redirectUrl}'
+                                : 'https://app.monarch.is/link-bank/' . $org_id . '?price={price}&redirectUrl={redirectUrl}';
+                        }
+
+                        // Save and return existing org data
+                        $customer_id = get_current_user_id();
+                        update_user_meta($customer_id, '_monarch_temp_org_id', $org_id);
+                        update_user_meta($customer_id, '_monarch_temp_user_id', $user_id);
+
+                        wp_send_json_success(array(
+                            'org_id' => $org_id,
+                            'user_id' => $user_id,
+                            'bank_linking_url' => $bank_linking_url,
+                            'existing' => true
+                        ));
+                        return;
+                    }
+                }
+
                 wp_send_json_error($org_result['error']);
             }
-            
+
             $user_id = $org_result['data']['_id'];
             $org_id = $org_result['data']['orgId'];
             $bank_linking_url = $org_result['data']['partner_embedded_url'] ?? $org_result['data']['bankLinkingUrl'] ?? $org_result['data']['connectionUrl'] ?? '';
@@ -641,5 +675,44 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         $logger->log_customer_event('bank_disconnected', $customer_id, array());
 
         wp_send_json_success(array('message' => 'Bank account disconnected successfully'));
+    }
+
+    /**
+     * Find existing organization by email
+     */
+    private function find_organization_by_email($email) {
+        $api_url = $this->testmode
+            ? 'https://devapi.monarch.is/v1'
+            : 'https://api.monarch.is/v1';
+
+        // Search for organization by email
+        $response = wp_remote_get($api_url . '/organization?email=' . urlencode($email), array(
+            'headers' => array(
+                'accept' => 'application/json',
+                'X-API-KEY' => $this->api_key,
+                'X-APP-ID' => $this->app_id
+            ),
+            'timeout' => 30
+        ));
+
+        if (is_wp_error($response)) {
+            return null;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        if ($status_code >= 200 && $status_code < 300 && !empty($body)) {
+            // Return first matching organization
+            if (is_array($body) && isset($body[0])) {
+                return $body[0];
+            }
+            // If single object returned
+            if (isset($body['orgId']) || isset($body['_id'])) {
+                return $body;
+            }
+        }
+
+        return null;
     }
 }

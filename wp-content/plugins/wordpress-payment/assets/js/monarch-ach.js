@@ -29,6 +29,17 @@ jQuery(document).ready(function($) {
         $spinner.show();
 
         // Gather customer data from billing fields
+        // State field can be select or input depending on country
+        let billingState = $('#billing_state').val() || '';
+        if (!billingState) {
+            // Try select element
+            billingState = $('select#billing_state').val() || '';
+        }
+        if (!billingState) {
+            // Try input element
+            billingState = $('input#billing_state').val() || '';
+        }
+
         const customerData = {
             action: 'monarch_create_organization',
             nonce: monarch_ach_params.nonce,
@@ -40,10 +51,12 @@ jQuery(document).ready(function($) {
             billing_address_1: $('#billing_address_1').val() || '',
             billing_address_2: $('#billing_address_2').val() || '',
             billing_city: $('#billing_city').val() || '',
-            billing_state: $('#billing_state').val() || '',
+            billing_state: billingState,
             billing_postcode: $('#billing_postcode').val() || '',
             billing_country: $('#billing_country').val() || ''
         };
+
+        console.log('Customer data being sent:', customerData);
 
         // Create organization and get bank linking URL
         $.ajax({
@@ -234,6 +247,29 @@ jQuery(document).ready(function($) {
 
         if (!$('#billing_email').val()) {
             showError('Please fill in your email address above first.');
+            return false;
+        }
+
+        // Check billing address fields required by Monarch
+        if (!$('#billing_address_1').val()) {
+            showError('Please fill in your billing address above first.');
+            return false;
+        }
+
+        if (!$('#billing_city').val()) {
+            showError('Please fill in your billing city above first.');
+            return false;
+        }
+
+        // State field can be select or input
+        let billingState = $('#billing_state').val() || $('select#billing_state').val() || $('input#billing_state').val() || '';
+        if (!billingState) {
+            showError('Please select your billing state/province above first.');
+            return false;
+        }
+
+        if (!$('#billing_postcode').val()) {
+            showError('Please fill in your billing postcode/ZIP above first.');
             return false;
         }
 
