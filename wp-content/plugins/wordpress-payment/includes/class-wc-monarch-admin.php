@@ -396,30 +396,45 @@ class WC_Monarch_Admin {
         if (!current_user_can('manage_woocommerce')) {
             return;
         }
-        
+
         $gateway = new WC_Monarch_ACH_Gateway();
-        
+
         if ($gateway->enabled === 'yes') {
-            if (empty($gateway->api_key) || empty($gateway->app_id)) {
+            // Check for missing credentials
+            $missing = array();
+            if (empty($gateway->api_key)) {
+                $missing[] = $gateway->testmode ? 'Sandbox API Key' : 'Live API Key';
+            }
+            if (empty($gateway->app_id)) {
+                $missing[] = $gateway->testmode ? 'Sandbox App ID' : 'Live App ID';
+            }
+            if (empty($gateway->merchant_org_id)) {
+                $missing[] = $gateway->testmode ? 'Sandbox Merchant Org ID' : 'Live Merchant Org ID';
+            }
+            if (empty($gateway->partner_name)) {
+                $missing[] = 'Partner Name';
+            }
+
+            if (!empty($missing)) {
                 ?>
                 <div class="notice notice-error">
                     <p>
-                        <strong>Monarch ACH Gateway:</strong> 
-                        API credentials are missing. 
+                        <strong>Monarch ACH Gateway:</strong>
+                        The following settings are missing: <strong><?php echo esc_html(implode(', ', $missing)); ?></strong>.
+                        The payment method will not be available at checkout until configured.
                         <a href="<?php echo admin_url('admin.php?page=wc-settings&tab=checkout&section=monarch_ach'); ?>">
                             Configure settings
                         </a>
                     </p>
                 </div>
                 <?php
-            }
-            
-            if ($gateway->testmode) {
+            } elseif ($gateway->testmode) {
                 ?>
-                <div class="notice notice-warning">
+                <div class="notice notice-warning is-dismissible">
                     <p>
-                        <strong>Monarch ACH Gateway:</strong> 
-                        Currently in test mode. Remember to switch to live mode for production.
+                        <strong>Monarch ACH Gateway:</strong>
+                        Currently in <strong>Test Mode</strong>. No real transactions will be processed.
+                        Remember to switch to live mode and enter production credentials before going live.
                     </p>
                 </div>
                 <?php
