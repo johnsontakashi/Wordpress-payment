@@ -72,9 +72,13 @@ class WC_Monarch_Admin {
                    class="nav-tab <?php echo $current_tab === 'settings' ? 'nav-tab-active' : ''; ?>">
                     API Settings
                 </a>
-                <a href="?page=monarch-ach-transactions&tab=logs" 
+                <a href="?page=monarch-ach-transactions&tab=logs"
                    class="nav-tab <?php echo $current_tab === 'logs' ? 'nav-tab-active' : ''; ?>">
                     Logs
+                </a>
+                <a href="?page=monarch-ach-transactions&tab=status-sync"
+                   class="nav-tab <?php echo $current_tab === 'status-sync' ? 'nav-tab-active' : ''; ?>">
+                    Status Sync
                 </a>
             </nav>
             
@@ -92,6 +96,9 @@ class WC_Monarch_Admin {
                         break;
                     case 'logs':
                         $this->render_logs_tab();
+                        break;
+                    case 'status-sync':
+                        $this->render_status_sync_tab();
                         break;
                     default:
                         $this->render_transactions_tab();
@@ -321,19 +328,19 @@ class WC_Monarch_Admin {
     
     private function render_logs_tab() {
         $log_file = WC_Log_Handler_File::get_log_file_path('monarch-ach');
-        
+
         ?>
         <div class="monarch-admin-section">
             <h2>API Logs</h2>
-            
+
             <?php if (file_exists($log_file)): ?>
                 <p>Recent API activity:</p>
                 <div class="monarch-logs">
                     <pre><?php echo esc_html(file_get_contents($log_file)); ?></pre>
                 </div>
-                
+
                 <p>
-                    <a href="<?php echo wp_nonce_url(add_query_arg(array('action' => 'clear_logs')), 'clear_logs'); ?>" 
+                    <a href="<?php echo wp_nonce_url(add_query_arg(array('action' => 'clear_logs')), 'clear_logs'); ?>"
                        class="button" onclick="return confirm('Are you sure you want to clear all logs?');">
                         Clear Logs
                     </a>
@@ -341,6 +348,142 @@ class WC_Monarch_Admin {
             <?php else: ?>
                 <p>No logs found.</p>
             <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    private function render_status_sync_tab() {
+        global $wpdb;
+
+        // Get CRON schedule info
+        $next_scheduled = wp_next_scheduled('monarch_ach_update_transaction_status');
+        $last_run = get_option('monarch_cron_last_run', null);
+
+        // Count pending transactions
+        $table_name = $wpdb->prefix . 'monarch_ach_transactions';
+        $pending_count = $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $table_name WHERE status IN (%s, %s)",
+            'pending',
+            'processing'
+        ));
+
+        ?>
+        <div class="monarch-admin-section">
+            <h2>Transaction Status Sync</h2>
+            <p>The plugin automatically checks Monarch API every hour to update transaction statuses (pending, completed, failed, etc.).</p>
+
+            <table class="form-table">
+                <tr>
+                    <th scope="row">CRON Status</th>
+                    <td>
+                        <?php if ($next_scheduled): ?>
+                            <span class="status-badge status-completed">Scheduled</span>
+                        <?php else: ?>
+                            <span class="status-badge status-failed">Not Scheduled</span>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Next Scheduled Run</th>
+                    <td>
+                        <?php if ($next_scheduled): ?>
+                            <?php echo date('M j, Y g:i A', $next_scheduled); ?>
+                            <br><small>(<?php echo human_time_diff($next_scheduled); ?> from now)</small>
+                        <?php else: ?>
+                            Not scheduled
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Last Run</th>
+                    <td>
+                        <?php if ($last_run && $last_run['time']): ?>
+                            <?php echo date('M j, Y g:i A', strtotime($last_run['time'])); ?>
+                            <br>
+                            <small>
+                                Processed: <?php echo $last_run['processed']; ?> |
+                                Updated: <?php echo $last_run['updated']; ?> |
+                                Errors: <?php echo $last_run['errors']; ?>
+                            </small>
+                        <?php else: ?>
+                            Never run
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">Pending Transactions</th>
+                    <td>
+                        <strong><?php echo intval($pending_count); ?></strong> transactions waiting to be updated
+                    </td>
+                </tr>
+            </table>
+
+            <h3>Manual Status Update</h3>
+            <p>You can manually trigger a status check for all pending transactions:</p>
+
+            <div class="status-sync-results" id="status-sync-results" style="display: none;">
+                <div class="notice" id="status-sync-notice"></div>
+            </div>
+
+            <p>
+                <button type="button" id="manual-status-update" class="button button-primary">
+                    Update Transaction Statuses Now
+                </button>
+                <span class="spinner" id="status-sync-spinner" style="float: none;"></span>
+            </p>
+
+            <p class="description">
+                This will check all pending/processing transactions with the Monarch API and update their statuses.
+                This may take a few minutes if you have many transactions.
+            </p>
+        </div>
+
+        <div class="monarch-admin-section">
+            <h2>How Status Sync Works</h2>
+            <ol>
+                <li>Every hour, the CRON job runs automatically</li>
+                <li>It finds all transactions with status "pending" or "processing"</li>
+                <li>For each transaction, it calls the Monarch API to check the current status</li>
+                <li>If the status has changed (e.g., completed, failed), it updates:
+                    <ul>
+                        <li>The transaction record in the database</li>
+                        <li>The WooCommerce order status</li>
+                        <li>Adds an order note with the update details</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <h3>Status Mappings</h3>
+            <table class="widefat" style="max-width: 500px;">
+                <thead>
+                    <tr>
+                        <th>Monarch Status</th>
+                        <th>WooCommerce Order Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>completed, success, settled, approved</td>
+                        <td><span class="status-badge status-completed">Completed</span></td>
+                    </tr>
+                    <tr>
+                        <td>pending, processing, submitted</td>
+                        <td><span class="status-badge status-processing">Processing</span></td>
+                    </tr>
+                    <tr>
+                        <td>failed, declined, rejected, returned</td>
+                        <td><span class="status-badge status-failed">Failed</span></td>
+                    </tr>
+                    <tr>
+                        <td>refunded, reversed</td>
+                        <td><span class="status-badge status-refunded">Refunded</span></td>
+                    </tr>
+                    <tr>
+                        <td>voided, cancelled</td>
+                        <td><span class="status-badge status-voided">Cancelled</span></td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
         <?php
     }

@@ -33,6 +33,7 @@ class WC_Monarch_ACH_Gateway_Plugin {
         add_filter('woocommerce_payment_gateways', array($this, 'add_gateway_class'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_scripts'));
         register_activation_hook(__FILE__, array($this, 'activate'));
+        register_deactivation_hook(__FILE__, array($this, 'deactivate'));
 
         // Register AJAX handlers early (before gateway is instantiated)
         add_action('init', array($this, 'register_ajax_handlers'));
@@ -47,6 +48,7 @@ class WC_Monarch_ACH_Gateway_Plugin {
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-monarch-api.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-ach-gateway.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-admin.php';
+        include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-cron.php';
     }
 
     /**
@@ -155,6 +157,22 @@ class WC_Monarch_ACH_Gateway_Plugin {
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
+
+        // Schedule CRON job on activation
+        if (!wp_next_scheduled('monarch_ach_update_transaction_status')) {
+            wp_schedule_event(time(), 'hourly', 'monarch_ach_update_transaction_status');
+        }
+    }
+
+    /**
+     * Plugin deactivation - clean up CRON jobs
+     */
+    public function deactivate() {
+        // Unschedule CRON job
+        $timestamp = wp_next_scheduled('monarch_ach_update_transaction_status');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'monarch_ach_update_transaction_status');
+        }
     }
 }
 

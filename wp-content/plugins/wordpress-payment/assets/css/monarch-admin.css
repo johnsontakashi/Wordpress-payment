@@ -46,6 +46,12 @@
     border: 1px solid #f5c6cb;
 }
 
+.status-badge.status-processing {
+    background: #cce5ff;
+    color: #004085;
+    border: 1px solid #99d6ff;
+}
+
 .status-badge.status-test {
     background: #cce5ff;
     color: #004085;
@@ -56,6 +62,18 @@
     background: #d1ecf1;
     color: #0c5460;
     border: 1px solid #bee5eb;
+}
+
+.status-badge.status-refunded {
+    background: #e2e3e5;
+    color: #383d41;
+    border: 1px solid #d6d8db;
+}
+
+.status-badge.status-voided {
+    background: #e2e3e5;
+    color: #383d41;
+    border: 1px solid #d6d8db;
 }
 
 .monarch-test-connection {

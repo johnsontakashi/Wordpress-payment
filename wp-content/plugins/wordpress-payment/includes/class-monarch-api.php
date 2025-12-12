@@ -121,6 +121,17 @@ class Monarch_API {
     }
     
     /**
+     * Get transaction status
+     * @param string $transaction_id The transaction ID to check
+     * @return array Response with success status and transaction data
+     */
+    public function get_transaction_status($transaction_id) {
+        $url = $this->base_url . '/transaction/cc/status/' . $transaction_id;
+
+        return $this->make_request('GET', $url);
+    }
+
+    /**
      * Make HTTP request to Monarch API
      */
     private function make_request($method, $url, $data = array()) {
