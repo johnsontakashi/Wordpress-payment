@@ -30,27 +30,41 @@ class WC_Monarch_Admin {
     }
     
     public function enqueue_admin_scripts($hook) {
-        if (strpos($hook, 'monarch-ach') !== false || strpos($hook, 'wc-settings') !== false) {
-            wp_enqueue_script(
-                'monarch-ach-admin',
-                WC_MONARCH_ACH_PLUGIN_URL . 'assets/js/monarch-admin.js',
-                array('jquery'),
-                WC_MONARCH_ACH_VERSION,
-                true
-            );
-            
-            wp_enqueue_style(
-                'monarch-ach-admin',
-                WC_MONARCH_ACH_PLUGIN_URL . 'assets/css/monarch-admin.css',
-                array(),
-                WC_MONARCH_ACH_VERSION
-            );
-            
-            wp_localize_script('monarch-ach-admin', 'monarch_admin_params', array(
-                'ajax_url' => admin_url('admin-ajax.php'),
-                'nonce' => wp_create_nonce('monarch_admin_nonce')
-            ));
+        // Check if we're on a Monarch admin page or WooCommerce settings
+        // Hook format: woocommerce_page_monarch-ach-transactions
+        $is_monarch_page = (
+            strpos($hook, 'monarch') !== false ||
+            strpos($hook, 'wc-settings') !== false ||
+            (isset($_GET['page']) && strpos($_GET['page'], 'monarch') !== false)
+        );
+
+        if (!$is_monarch_page) {
+            return;
         }
+
+        // Force load with timestamp for cache busting
+        $version = WC_MONARCH_ACH_VERSION . '.' . time();
+
+        wp_enqueue_script(
+            'monarch-ach-admin',
+            WC_MONARCH_ACH_PLUGIN_URL . 'assets/js/monarch-admin.js',
+            array('jquery'),
+            $version,
+            true
+        );
+
+        wp_enqueue_style(
+            'monarch-ach-admin',
+            WC_MONARCH_ACH_PLUGIN_URL . 'assets/css/monarch-admin.css',
+            array(),
+            $version
+        );
+
+        wp_localize_script('monarch-ach-admin', 'monarch_admin_params', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('monarch_admin_nonce'),
+            'debug' => true
+        ));
     }
     
     public function transactions_page() {
@@ -436,6 +450,68 @@ class WC_Monarch_Admin {
                 This will check all pending/processing transactions with the Monarch API and update their statuses.
                 This may take a few minutes if you have many transactions.
             </p>
+
+            <script type="text/javascript">
+            jQuery(document).ready(function($) {
+                console.log('=== Monarch Status Sync Inline JS Loaded ===');
+
+                var $button = $('#manual-status-update');
+                console.log('Button found:', $button.length);
+
+                if ($button.length === 0) {
+                    console.error('Button #manual-status-update not found!');
+                    return;
+                }
+
+                $button.on('click', function(e) {
+                    e.preventDefault();
+                    console.log('Manual status update button clicked');
+
+                    var $spinner = $('#status-sync-spinner');
+                    var $results = $('#status-sync-results');
+                    var $notice = $('#status-sync-notice');
+
+                    if (!confirm('This will check all pending transactions with the Monarch API. Continue?')) {
+                        return;
+                    }
+
+                    $button.prop('disabled', true).text('Updating...');
+                    $spinner.addClass('is-active');
+                    $results.hide();
+
+                    $.ajax({
+                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                        type: 'POST',
+                        data: {
+                            action: 'monarch_manual_status_update',
+                            nonce: '<?php echo wp_create_nonce('monarch_admin_nonce'); ?>'
+                        },
+                        timeout: 300000,
+                        success: function(response) {
+                            console.log('AJAX Response:', response);
+                            if (response.success) {
+                                $notice.removeClass('notice-error').addClass('notice-success')
+                                       .html('<p><strong>Success:</strong> ' + response.data.message + '</p>');
+                            } else {
+                                $notice.removeClass('notice-success').addClass('notice-error')
+                                       .html('<p><strong>Error:</strong> ' + response.data + '</p>');
+                            }
+                            $results.show();
+                        },
+                        error: function(xhr, status, error) {
+                            console.error('AJAX Error:', status, error);
+                            $notice.removeClass('notice-success').addClass('notice-error')
+                                   .html('<p><strong>Error:</strong> ' + (error || 'Request failed') + '</p>');
+                            $results.show();
+                        },
+                        complete: function() {
+                            $button.prop('disabled', false).text('Update Transaction Statuses Now');
+                            $spinner.removeClass('is-active');
+                        }
+                    });
+                });
+            });
+            </script>
         </div>
 
         <div class="monarch-admin-section">
