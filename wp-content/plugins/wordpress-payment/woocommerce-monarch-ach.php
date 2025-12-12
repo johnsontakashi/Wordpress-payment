@@ -64,6 +64,8 @@ class WC_Monarch_ACH_Gateway_Plugin {
         add_action('wp_ajax_nopriv_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
         add_action('wp_ajax_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
         add_action('wp_ajax_nopriv_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
+        // CRON manual status update handler
+        add_action('wp_ajax_monarch_manual_status_update', array($this, 'ajax_manual_status_update'));
     }
 
     /**
@@ -119,6 +121,47 @@ class WC_Monarch_ACH_Gateway_Plugin {
     public function ajax_manual_bank_entry() {
         $gateway = $this->get_gateway();
         $gateway->ajax_manual_bank_entry();
+    }
+
+    /**
+     * AJAX handler for manual status update (CRON)
+     */
+    public function ajax_manual_status_update() {
+        check_ajax_referer('monarch_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Insufficient permissions');
+            return;
+        }
+
+        // Include required files if not already loaded
+        if (!class_exists('WC_Monarch_Logger')) {
+            include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-logger.php';
+        }
+        if (!class_exists('Monarch_API')) {
+            include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-monarch-api.php';
+        }
+        if (!class_exists('WC_Monarch_ACH_Gateway')) {
+            include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-ach-gateway.php';
+        }
+        if (!class_exists('WC_Monarch_Cron')) {
+            include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-cron.php';
+        }
+
+        $cron = WC_Monarch_Cron::instance();
+        $result = $cron->update_pending_transactions();
+
+        wp_send_json_success(array(
+            'message' => sprintf(
+                'Status update complete. Processed: %d, Updated: %d, Errors: %d',
+                $result['processed'],
+                $result['updated'],
+                $result['errors']
+            ),
+            'processed' => $result['processed'],
+            'updated' => $result['updated'],
+            'errors' => $result['errors']
+        ));
     }
 
     public function add_gateway_class($gateways) {
