@@ -123,17 +123,23 @@ jQuery(document).ready(function($) {
 
         console.log('Original bank linking URL from Monarch:', connectionUrl);
 
-        // The URL contains placeholders like &price={price} or #redirectUrl={redirectUrl}
-        // Replace these placeholders with actual values
-        if (url.includes('{redirectUrl}') || url.includes('{price}')) {
-            // Get the current page URL to use as redirect (though we'll use postMessage instead)
-            const currentUrl = encodeURIComponent(window.location.href);
-            const orderTotal = $('#order_review .order-total .amount').text().replace(/[^0-9.]/g, '') || '0';
+        // The URL may contain invalid multiple hash fragments like:
+        // https://appsandbox.monarch.is/#/embeddedBankLinking/ID&price={price}#redirectUrl={redirectUrl}
+        // Split by first # and clean up the hash fragment
+        if (url.includes('#') && (url.includes('{redirectUrl}') || url.includes('{price}'))) {
+            const parts = url.split('#');
+            const baseUrl = parts[0]; // https://appsandbox.monarch.is/
+            let hashFragment = parts.slice(1).join('#'); // /embeddedBankLinking/ID&price={price}#redirectUrl={redirectUrl}
 
-            // Replace the placeholders with actual values
-            url = url.replace(/\{redirectUrl\}/g, currentUrl);
-            url = url.replace(/\{price\}/g, orderTotal);
-            console.log('Replaced URL placeholders - redirectUrl:', currentUrl, 'price:', orderTotal);
+            // Remove all placeholder parameters from the hash fragment
+            hashFragment = hashFragment.replace(/&price=\{price\}/g, '');
+            hashFragment = hashFragment.replace(/#redirectUrl=\{redirectUrl\}/g, '');
+            hashFragment = hashFragment.replace(/&redirectUrl=\{redirectUrl\}/g, '');
+
+            // Reconstruct clean URL
+            url = baseUrl + '#' + hashFragment;
+
+            console.log('Cleaned URL from:', connectionUrl, 'to:', url);
         }
 
         console.log('Final iframe URL:', url);
