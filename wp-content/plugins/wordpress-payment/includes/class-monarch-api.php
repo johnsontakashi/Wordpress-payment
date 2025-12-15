@@ -126,7 +126,7 @@ class Monarch_API {
      * @return array Response with success status and transaction data
      */
     public function get_transaction_status($transaction_id) {
-        $url = $this->base_url . '/analytics/status/' . $transaction_id;
+        $url = $this->base_url . '/transaction/status/' . $transaction_id;
 
         return $this->make_request('GET', $url);
     }

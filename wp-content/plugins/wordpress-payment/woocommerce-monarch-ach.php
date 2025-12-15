@@ -203,7 +203,7 @@ class WC_Monarch_ACH_Gateway_Plugin {
 
         // Schedule CRON job on activation
         if (!wp_next_scheduled('monarch_ach_update_transaction_status')) {
-            wp_schedule_event(time(), 'hourly', 'monarch_ach_update_transaction_status');
+            wp_schedule_event(time(), 'every_two_hours', 'monarch_ach_update_transaction_status');
         }
     }
 

@@ -9,7 +9,7 @@ class WC_Monarch_Cron {
     private static $instance = null;
 
     const CRON_HOOK = 'monarch_ach_update_transaction_status';
-    const CRON_INTERVAL = 'hourly';
+    const CRON_INTERVAL = 'every_two_hours';
 
     public static function instance() {
         if (self::$instance === null) {
@@ -19,6 +19,9 @@ class WC_Monarch_Cron {
     }
 
     public function __construct() {
+        // Add custom cron schedule
+        add_filter('cron_schedules', array($this, 'add_custom_cron_schedule'));
+
         // Schedule CRON on plugin init
         add_action('init', array($this, 'schedule_cron'));
 
@@ -27,6 +30,17 @@ class WC_Monarch_Cron {
 
         // Add manual trigger via AJAX
         add_action('wp_ajax_monarch_manual_status_update', array($this, 'ajax_manual_status_update'));
+    }
+
+    /**
+     * Add custom cron schedule for every 2 hours
+     */
+    public function add_custom_cron_schedule($schedules) {
+        $schedules['every_two_hours'] = array(
+            'interval' => 7200, // 2 hours in seconds
+            'display'  => __('Every 2 Hours', 'monarch-ach')
+        );
+        return $schedules;
     }
 
     /**

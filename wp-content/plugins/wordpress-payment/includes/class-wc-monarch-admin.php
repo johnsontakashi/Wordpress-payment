@@ -384,7 +384,7 @@ class WC_Monarch_Admin {
         ?>
         <div class="monarch-admin-section">
             <h2>Transaction Status Sync</h2>
-            <p>The plugin automatically checks Monarch API every hour to update transaction statuses (pending, completed, failed, etc.).</p>
+            <p>The plugin automatically checks Monarch API every 2 hours to update transaction statuses (pending, completed, failed, etc.).</p>
 
             <table class="form-table">
                 <tr>
@@ -517,7 +517,7 @@ class WC_Monarch_Admin {
         <div class="monarch-admin-section">
             <h2>How Status Sync Works</h2>
             <ol>
-                <li>Every hour, the CRON job runs automatically</li>
+                <li>Every 2 hours, the CRON job runs automatically</li>
                 <li>It finds all transactions with status "pending" or "processing"</li>
                 <li>For each transaction, it calls the Monarch API to check the current status</li>
                 <li>If the status has changed (e.g., completed, failed), it updates:
