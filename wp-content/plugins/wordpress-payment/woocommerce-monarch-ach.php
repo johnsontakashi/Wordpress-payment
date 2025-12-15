@@ -20,7 +20,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('WC_MONARCH_ACH_VERSION', '1.0.4');
+define('WC_MONARCH_ACH_VERSION', '1.0.6');
 define('WC_MONARCH_ACH_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('WC_MONARCH_ACH_PLUGIN_URL', plugin_dir_url(__FILE__));
 

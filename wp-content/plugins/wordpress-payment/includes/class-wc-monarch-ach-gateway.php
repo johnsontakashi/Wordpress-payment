@@ -508,6 +508,34 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             $org_id = $org_result['data']['orgId'];
             $bank_linking_url = $org_result['data']['partner_embedded_url'] ?? $org_result['data']['bankLinkingUrl'] ?? $org_result['data']['connectionUrl'] ?? '';
             
+            // Clean up the URL format before sending to frontend
+            if (!empty($bank_linking_url)) {
+                // Remove any double-encoding or malformed URL structure
+                $bank_linking_url = urldecode($bank_linking_url);
+                
+                // Fix double-encoded URLs (common issue with callback URLs)
+                if (strpos($bank_linking_url, 'http%3A') !== false) {
+                    // This indicates a double-encoded URL
+                    $bank_linking_url = urldecode($bank_linking_url);
+                }
+                
+                // Ensure proper URL format - remove invalid hash fragments
+                if (strpos($bank_linking_url, '#') !== false && substr_count($bank_linking_url, '#') > 1) {
+                    $parts = explode('#', $bank_linking_url);
+                    $base_url = $parts[0];
+                    $hash_parts = array_slice($parts, 1);
+                    
+                    // Combine hash parts with & instead of multiple #
+                    $clean_hash = implode('&', $hash_parts);
+                    $bank_linking_url = $base_url . '#' . $clean_hash;
+                }
+                
+                // Validate the final URL
+                if (!filter_var($bank_linking_url, FILTER_VALIDATE_URL)) {
+                    error_log('Monarch ACH: Invalid bank linking URL after cleanup: ' . $bank_linking_url);
+                }
+            }
+            
             // Save organization data temporarily (will be permanent after bank connection)
             $customer_id = get_current_user_id();
             update_user_meta($customer_id, '_monarch_temp_org_id', $org_id);

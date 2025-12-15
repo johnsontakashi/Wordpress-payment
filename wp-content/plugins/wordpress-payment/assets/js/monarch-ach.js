@@ -109,8 +109,8 @@ jQuery(document).ready(function($) {
                     $spinner.hide();
                 }
             },
-            error: function(xhr, status, error) {
-                showError('Connection error: ' + error);
+            error: function(jqXHR, textStatus, errorThrown) {
+                showError('Connection error: ' + errorThrown);
                 $button.prop('disabled', false).text('Connect Bank Account');
                 $spinner.hide();
             }
@@ -123,26 +123,46 @@ jQuery(document).ready(function($) {
 
         console.log('Original bank linking URL from Monarch:', connectionUrl);
 
-        // The URL may contain invalid multiple hash fragments like:
-        // https://appsandbox.monarch.is/#/embeddedBankLinking/ID&price={price}#redirectUrl={redirectUrl}
-        // Split by first # and clean up the hash fragment
-        if (url.includes('#') && (url.includes('{redirectUrl}') || url.includes('{price}'))) {
+        // Clean up URL formatting and replace placeholders properly
+        if (url.includes('{redirectUrl}') || url.includes('{price}')) {
+            // Get the current checkout URL
+            const currentUrl = window.location.href;
+            let redirectUrl = currentUrl.split('?')[0]; // Remove query params for cleaner URL
+            
+            // Ensure redirectUrl is properly formatted and not double-encoded
+            if (redirectUrl.startsWith('http://localhost') || redirectUrl.startsWith('https://localhost')) {
+                // For localhost, use a simpler callback approach
+                redirectUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
+            }
+            
+            // Replace placeholders with actual values
+            url = url.replace(/\{price\}/g, '100'); // Default price or get from order
+            // Only encode the redirect URL once
+            url = url.replace(/\{redirectUrl\}/g, encodeURIComponent(redirectUrl));
+            
+            console.log('Replaced URL placeholders - redirectUrl:', redirectUrl, 'price: 100');
+        }
+
+        // Fix malformed URLs with multiple hash fragments
+        if (url.includes('#') && url.split('#').length > 2) {
             const parts = url.split('#');
-            const baseUrl = parts[0]; // https://appsandbox.monarch.is/
-            let hashFragment = parts.slice(1).join('#'); // /embeddedBankLinking/ID&price={price}#redirectUrl={redirectUrl}
-
-            // Remove all placeholder parameters from the hash fragment
-            hashFragment = hashFragment.replace(/&price=\{price\}/g, '');
-            hashFragment = hashFragment.replace(/#redirectUrl=\{redirectUrl\}/g, '');
-            hashFragment = hashFragment.replace(/&redirectUrl=\{redirectUrl\}/g, '');
-
-            // Reconstruct clean URL
+            const baseUrl = parts[0];
+            // Join all hash parts with & instead of multiple #
+            let hashFragment = parts.slice(1).join('&');
+            
+            // Clean up any remaining invalid patterns
+            hashFragment = hashFragment.replace(/&+/g, '&').replace(/^&|&$/g, '');
+            
             url = baseUrl + '#' + hashFragment;
-
-            console.log('Cleaned URL from:', connectionUrl, 'to:', url);
         }
 
         console.log('Final iframe URL:', url);
+        console.log('URL Analysis:', {
+            'hasPlaceholders': url.includes('{'),
+            'isLocalhost': url.includes('localhost'),
+            'isHTTPS': url.startsWith('https'),
+            'hasDoubleEncoding': url.includes('http%3A')
+        });
 
         // Open modal with toggle between automatic and manual
         const modal = $('<div id="bank-connection-modal">' +
@@ -161,7 +181,7 @@ jQuery(document).ready(function($) {
             // Automatic section (iframe)
             '<div id="modal-auto-section" class="monarch-modal-section">' +
             '<div class="monarch-modal-body">' +
-            '<iframe id="bank-linking-iframe" src="' + url + '"></iframe>' +
+            '<iframe id="bank-linking-iframe" src="' + url + '" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation" onload="handleIframeLoad()" onerror="handleIframeError()"></iframe>' +
             '</div>' +
             '<div class="monarch-modal-footer">' +
             '<p>After connecting your bank, click the button below:</p>' +
@@ -229,21 +249,48 @@ jQuery(document).ready(function($) {
 
         // Listen for postMessage from iframe (if Monarch sends one)
         window.addEventListener('message', handleBankMessage);
+        
+        // Add global iframe error handlers
+        window.handleIframeLoad = function() {
+            console.log('Bank linking iframe loaded successfully');
+        };
+        
+        window.handleIframeError = function() {
+            console.log('Bank linking iframe failed to load');
+            showError('Failed to load bank connection. Please try the manual entry option or refresh the page.');
+        };
     }
 
     // Handle messages from Monarch iframe
     function handleBankMessage(event) {
-        // Only accept messages from Monarch/Yodlee domains
-        const allowedOrigins = ['https://devapi.monarch.is', 'https://api.monarch.is',
-                               'https://appsandbox.monarch.is', 'https://app.monarch.is',
-                               'yodlee.com', 'dag2.yodlee.com', 'fl4.prod.yodlee.com'];
-        const isAllowed = allowedOrigins.some(origin => event.origin.includes(origin));
+        try {
+            console.log('DEBUG: Received postMessage from:', event.origin, 'Data:', event.data);
 
-        if (!isAllowed) {
-            return; // Ignore messages from other origins
-        }
+            // Only accept messages from Monarch/Yodlee domains
+            const allowedOrigins = ['https://devapi.monarch.is', 'https://api.monarch.is',
+                                   'https://appsandbox.monarch.is', 'https://app.monarch.is',
+                                   'yodlee.com', 'dag2.yodlee.com', 'fl4.prod.yodlee.com'];
+            const isAllowed = allowedOrigins.some(origin => event.origin.includes(origin));
 
-        console.log('Received postMessage from iframe:', event.origin, event.data);
+            if (!isAllowed) {
+                console.log('DEBUG: Origin not allowed:', event.origin);
+                return; // Ignore messages from other origins
+            }
+
+            console.log('Received postMessage from iframe:', event.origin, event.data);
+            
+            // Prevent focus-related errors by checking if elements exist before calling focus
+            if (event.data && event.data.action === 'focus' && event.data.elementId) {
+                const targetElement = document.getElementById(event.data.elementId);
+                if (targetElement && typeof targetElement.focus === 'function') {
+                    try {
+                        targetElement.focus();
+                    } catch (focusError) {
+                        console.log('Focus error caught and handled:', focusError);
+                    }
+                }
+                return;
+            }
 
         // Handle Yodlee FastLink success messages
         // Format: {status: "SUCCESS", providerId: 16441, providerAccountId: 27271217, fnToCall: "accountStatus", ...}
@@ -268,11 +315,27 @@ jQuery(document).ready(function($) {
                 return;
             }
 
+            // Handle exit/close messages from Yodlee (bank linking finished)
+            if (event.data.action === 'exit' && event.data.sites && event.data.sites.length > 0) {
+                console.log('Bank linking finished successfully via exit action!');
+                $('#monarch-bank-connected-btn').click();
+                return;
+            }
+
             // Handle other success indicators
             if (event.data.type === 'BANK_CONNECTION_SUCCESS' ||
                 event.data.success === true ||
                 event.data.fnToCall === 'accountStatus') {
                 console.log('Bank connection completed. User should click confirmation button.');
+            }
+        }
+        } catch (error) {
+            console.log('Error handling iframe message:', error);
+            // Don't let iframe errors break the parent page
+            
+            // If it's a focus error, try to handle it gracefully
+            if (error.message && error.message.includes('focus')) {
+                console.log('Focus error prevented from breaking the page');
             }
         }
     }
@@ -337,8 +400,8 @@ jQuery(document).ready(function($) {
                     $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
                 }
             },
-            error: function(xhr, status, error) {
-                showError('Connection error: ' + error);
+            error: function(jqXHR, textStatus, errorThrown) {
+                showError('Connection error: ' + errorThrown);
                 $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
             }
         });
@@ -555,9 +618,9 @@ jQuery(document).ready(function($) {
                     $spinner.hide();
                 }
             },
-            error: function(xhr, status, error) {
-                console.log('Manual bank entry error:', status, error, xhr.responseText);
-                showModalError('Connection error: ' + error);
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.log('Manual bank entry error:', textStatus, errorThrown, jqXHR.responseText);
+                showModalError('Connection error: ' + errorThrown);
                 $button.prop('disabled', false).text('Submit Bank Details');
                 $spinner.hide();
             }
@@ -635,9 +698,9 @@ jQuery(document).ready(function($) {
                     $link.text('Use a different bank account').css('pointer-events', 'auto');
                 }
             },
-            error: function(xhr, status, error) {
-                console.log('Disconnect error:', status, error, xhr.responseText);
-                showError('Connection error: ' + error);
+            error: function(jqXHR, textStatus, errorThrown) {
+                console.log('Disconnect error:', textStatus, errorThrown, jqXHR.responseText);
+                showError('Connection error: ' + errorThrown);
                 $link.text('Use a different bank account').css('pointer-events', 'auto');
             }
         });
@@ -645,8 +708,6 @@ jQuery(document).ready(function($) {
 
     // Auto-fill form with test data in development mode
     if (typeof monarch_ach_params !== 'undefined' && monarch_ach_params.test_mode === 'yes') {
-        $(document).on('click', '#monarch-connect-bank', function(e) {
-            // Don't interfere with actual click handler
-        });
+        // Test mode is active - could add debug helpers here
     }
 });
