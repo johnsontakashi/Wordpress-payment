@@ -172,14 +172,46 @@ class WC_Monarch_Cron {
         $result = $monarch_api->get_transaction_status($transaction->transaction_id);
 
         if (!$result['success']) {
-            $logger->error('CRON: Failed to get status for transaction ' . $transaction->transaction_id . ': ' . ($result['error'] ?? 'Unknown error'));
+            $error_msg = $result['error'] ?? 'Unknown error';
+            $status_code = $result['status_code'] ?? 'N/A';
+            $logger->error('CRON: Failed to get status for transaction ' . $transaction->transaction_id . ': ' . $error_msg . ' (HTTP ' . $status_code . ')');
+
+            // Log the full response for debugging
+            if (isset($result['response'])) {
+                $logger->debug('CRON: Full API response: ' . json_encode($result['response']));
+            }
+
             return false;
         }
 
-        $api_status = $result['data']['status'] ?? $result['data']['transactionStatus'] ?? null;
+        // Try to extract status from various possible response formats
+        $api_status = null;
+        $response_data = $result['data'] ?? array();
+
+        // Format 1: data.status
+        if (isset($response_data['status'])) {
+            $api_status = $response_data['status'];
+        }
+        // Format 2: data.transactionStatus
+        elseif (isset($response_data['transactionStatus'])) {
+            $api_status = $response_data['transactionStatus'];
+        }
+        // Format 3: data.transaction.status
+        elseif (isset($response_data['transaction']['status'])) {
+            $api_status = $response_data['transaction']['status'];
+        }
+        // Format 4: data.transaction_status
+        elseif (isset($response_data['transaction_status'])) {
+            $api_status = $response_data['transaction_status'];
+        }
+        // Format 5: Direct response (no 'data' wrapper) - status
+        elseif (isset($result['status'])) {
+            $api_status = $result['status'];
+        }
 
         if (empty($api_status)) {
-            $logger->warning('CRON: No status returned for transaction ' . $transaction->transaction_id);
+            $logger->warning('CRON: No status field found in response for transaction ' . $transaction->transaction_id);
+            $logger->debug('CRON: Full response structure: ' . json_encode($result));
             return null;
         }
 
