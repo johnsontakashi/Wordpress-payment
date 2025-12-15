@@ -119,20 +119,24 @@ jQuery(document).ready(function($) {
 
     // Open bank connection in a popup window
     function openBankConnectionWindow(connectionUrl, orgId) {
-        // The bank linking URL from Monarch may contain a {redirectUrl} placeholder
-        // We need to replace it with our checkout URL where users return after bank linking
-        const currentUrl = window.location.href.split('?')[0].split('#')[0];
-
-        // Check if URL contains the placeholder and replace it
         let url = connectionUrl;
-        if (url.includes('{redirectUrl}')) {
-            url = url.replace('{redirectUrl}', encodeURIComponent(currentUrl));
-        } else if (url.includes('%7BredirectUrl%7D')) {
-            url = url.replace('%7BredirectUrl%7D', encodeURIComponent(currentUrl));
+
+        console.log('Original bank linking URL from Monarch:', connectionUrl);
+
+        // The URL contains placeholders like &price={price} or #redirectUrl={redirectUrl}
+        // Replace these placeholders with actual values
+        if (url.includes('{redirectUrl}') || url.includes('{price}')) {
+            // Get the current page URL to use as redirect (though we'll use postMessage instead)
+            const currentUrl = encodeURIComponent(window.location.href);
+            const orderTotal = $('#order_review .order-total .amount').text().replace(/[^0-9.]/g, '') || '0';
+
+            // Replace the placeholders with actual values
+            url = url.replace(/\{redirectUrl\}/g, currentUrl);
+            url = url.replace(/\{price\}/g, orderTotal);
+            console.log('Replaced URL placeholders - redirectUrl:', currentUrl, 'price:', orderTotal);
         }
 
-        console.log('Original bank linking URL:', connectionUrl);
-        console.log('Final bank linking URL:', url);
+        console.log('Final iframe URL:', url);
 
         // Open modal with toggle between automatic and manual
         const modal = $('<div id="bank-connection-modal">' +
@@ -223,29 +227,46 @@ jQuery(document).ready(function($) {
 
     // Handle messages from Monarch iframe
     function handleBankMessage(event) {
-        // Only accept messages from Monarch domains
-        const allowedOrigins = ['https://devapi.monarch.is', 'https://api.monarch.is', 'https://yodlee.com', 'https://dag2.yodlee.com'];
-        const isAllowed = allowedOrigins.some(origin => event.origin.includes(origin) || event.origin.includes('yodlee'));
+        // Only accept messages from Monarch/Yodlee domains
+        const allowedOrigins = ['https://devapi.monarch.is', 'https://api.monarch.is',
+                               'https://appsandbox.monarch.is', 'https://app.monarch.is',
+                               'yodlee.com', 'dag2.yodlee.com', 'fl4.prod.yodlee.com'];
+        const isAllowed = allowedOrigins.some(origin => event.origin.includes(origin));
 
         if (!isAllowed) {
             return; // Ignore messages from other origins
         }
 
-        console.log('Received message from iframe:', event.data);
+        console.log('Received postMessage from iframe:', event.origin, event.data);
 
-        // Check for various message types that Monarch might send
-        if (event.data && (event.data.type === 'BANK_CONNECTION_SUCCESS' ||
-            event.data.payTokenId || event.data.paytoken_id ||
-            event.data.success || event.data.status === 'success')) {
+        // Handle Yodlee FastLink success messages
+        // Format: {status: "SUCCESS", providerId: 16441, providerAccountId: 27271217, fnToCall: "accountStatus", ...}
+        if (event.data && typeof event.data === 'object') {
+            // Yodlee sends status: "SUCCESS" with providerAccountId
+            if ((event.data.status === 'SUCCESS' || event.data.status === 'success') &&
+                (event.data.providerAccountId || event.data.providerAccountID)) {
 
+                const providerAccountId = event.data.providerAccountId || event.data.providerAccountID;
+                console.log('Bank connection successful! Provider Account ID:', providerAccountId);
+
+                // Auto-click the "I've Connected My Bank" button to proceed
+                $('#monarch-bank-connected-btn').click();
+                return;
+            }
+
+            // Handle direct PayToken messages (if Monarch sends them)
             const payTokenId = event.data.payTokenId || event.data.paytoken_id || event.data.paytokenId;
-
             if (payTokenId) {
                 console.log('Bank connection successful, PayToken ID:', payTokenId);
                 completeBankConnection(payTokenId);
-            } else {
-                // If no payTokenId in message, user needs to click "I've Connected My Bank" button
-                console.log('Bank connection completed but no PayToken in message. User should click confirmation button.');
+                return;
+            }
+
+            // Handle other success indicators
+            if (event.data.type === 'BANK_CONNECTION_SUCCESS' ||
+                event.data.success === true ||
+                event.data.fnToCall === 'accountStatus') {
+                console.log('Bank connection completed. User should click confirmation button.');
             }
         }
     }
