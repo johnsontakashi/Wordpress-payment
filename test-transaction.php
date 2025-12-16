@@ -89,10 +89,11 @@ $org_data = array(
 
 $result1 = make_request('POST', $base_url . '/organization', $org_data, $api_key, $app_id);
 echo "HTTP: " . $result1['http_code'] . "\n";
+echo "\n=== FULL RESPONSE STRUCTURE ===\n";
 print_r($result1['response']);
 
 if ($result1['http_code'] < 200 || $result1['http_code'] >= 300) {
-    echo "\n❌ Step 1 FAILED - Cannot continue\n";
+    echo "\n[X] Step 1 FAILED - Cannot continue\n";
     exit;
 }
 
@@ -100,11 +101,44 @@ $user_id = $result1['response']['_id'] ?? null;
 $org_id = $result1['response']['orgId'] ?? null;
 
 // Extract the purchaser org's API credentials for the sale transaction
+echo "\n=== CHECKING FOR PURCHASER CREDENTIALS ===\n";
+echo "Looking for credentials in response...\n";
+
+// Check various possible locations
+$api_object = $result1['response']['api'] ?? null;
+echo "response['api'] exists: " . ($api_object ? "YES" : "NO") . "\n";
+
+if ($api_object) {
+    echo "Keys in response['api']: " . implode(', ', array_keys($api_object)) . "\n";
+
+    $sandbox_creds = $api_object['sandbox'] ?? null;
+    echo "response['api']['sandbox'] exists: " . ($sandbox_creds ? "YES" : "NO") . "\n";
+
+    if ($sandbox_creds) {
+        echo "Keys in response['api']['sandbox']: " . implode(', ', array_keys($sandbox_creds)) . "\n";
+        print_r($sandbox_creds);
+    }
+
+    $prod_creds = $api_object['prod'] ?? null;
+    echo "response['api']['prod'] exists: " . ($prod_creds ? "YES" : "NO") . "\n";
+}
+
+// Check alternative locations
+echo "\nAlternative locations:\n";
+echo "response['apiKey']: " . ($result1['response']['apiKey'] ?? 'NOT FOUND') . "\n";
+echo "response['api_key']: " . ($result1['response']['api_key'] ?? 'NOT FOUND') . "\n";
+echo "response['appId']: " . ($result1['response']['appId'] ?? 'NOT FOUND') . "\n";
+echo "response['app_id']: " . ($result1['response']['app_id'] ?? 'NOT FOUND') . "\n";
+
 $org_api_key = $result1['response']['api']['sandbox']['api_key'] ?? null;
 $org_app_id = $result1['response']['api']['sandbox']['app_id'] ?? null;
 
-echo "\n✅ Step 1 SUCCESS - user_id: $user_id, org_id: $org_id\n";
-echo "Purchaser org credentials - api_key: $org_api_key, app_id: $org_app_id\n\n";
+echo "\n[OK] Step 1 SUCCESS - user_id: $user_id, org_id: $org_id\n";
+echo "Purchaser org credentials - api_key: " . ($org_api_key ? substr($org_api_key, 0, 8) . '...' : 'NOT FOUND') . ", app_id: " . ($org_app_id ?: 'NOT FOUND') . "\n\n";
+
+// Check bank linking URL
+$bank_linking_url = $result1['response']['partner_embedded_url'] ?? $result1['response']['bankLinkingUrl'] ?? 'NOT FOUND';
+echo "Bank Linking URL: " . $bank_linking_url . "\n\n";
 
 // Step 2: Create PayToken
 echo "--- STEP 2: Create PayToken ---\n";
@@ -132,12 +166,12 @@ echo "HTTP: " . $result2['http_code'] . "\n";
 print_r($result2['response']);
 
 if ($result2['http_code'] < 200 || $result2['http_code'] >= 300) {
-    echo "\n❌ Step 2 FAILED - Cannot continue\n";
+    echo "\n[X] Step 2 FAILED - Cannot continue\n";
     exit;
 }
 
 $paytoken_id = $result2['response']['payToken'] ?? null;
-echo "\n✅ Step 2 SUCCESS - paytoken_id: $paytoken_id\n\n";
+echo "\n[OK] Step 2 SUCCESS - paytoken_id: $paytoken_id\n\n";
 
 // Step 3: Assign PayToken
 echo "--- STEP 3: Assign PayToken ---\n";
@@ -151,24 +185,54 @@ echo "HTTP: " . $result3['http_code'] . "\n";
 print_r($result3['response']);
 
 if ($result3['http_code'] < 200 || $result3['http_code'] >= 300) {
-    echo "\n❌ Step 3 FAILED - Cannot continue\n";
+    echo "\n[X] Step 3 FAILED - Cannot continue\n";
     exit;
 }
 
-echo "\n✅ Step 3 SUCCESS - PayToken assigned\n\n";
+echo "\n[OK] Step 3 SUCCESS - PayToken assigned\n\n";
 
 // Wait a moment for data to propagate
 echo "Waiting 2 seconds for data propagation...\n";
 sleep(2);
 
+// Step 3.5: Test getLatestPayToken with different credentials
+echo "--- STEP 3.5: Test getLatestPayToken ---\n";
+
+echo "\n>>> Testing with MERCHANT credentials:\n";
+$result_merchant = make_request('GET', $base_url . '/getlatestpaytoken/' . $org_id, array(), $api_key, $app_id);
+echo "HTTP: " . $result_merchant['http_code'] . "\n";
+print_r($result_merchant['response']);
+
+if ($org_api_key && $org_app_id) {
+    echo "\n>>> Testing with PURCHASER credentials:\n";
+    $result_purchaser = make_request('GET', $base_url . '/getlatestpaytoken/' . $org_id, array(), $org_api_key, $org_app_id);
+    echo "HTTP: " . $result_purchaser['http_code'] . "\n";
+    print_r($result_purchaser['response']);
+} else {
+    echo "\n>>> Cannot test with PURCHASER credentials - not found in response\n";
+}
+
 // Step 4: Sale Transaction (using purchaser org's credentials)
-echo "--- STEP 4: Sale Transaction ---\n";
+echo "\n--- STEP 4: Sale Transaction ---\n";
 echo "Using orgId: $org_id\n";
 echo "Using payTokenId: $paytoken_id\n";
 echo "Using merchantOrgId: $merchant_org_id\n";
-echo "Using PURCHASER org credentials (not partner credentials)\n";
-echo "  api_key: $org_api_key\n";
-echo "  app_id: $org_app_id\n";
+
+// Determine which credentials to use
+if ($org_api_key && $org_app_id) {
+    echo "Using PURCHASER org credentials\n";
+    echo "  api_key: " . substr($org_api_key, 0, 8) . "...\n";
+    echo "  app_id: $org_app_id\n";
+    $sale_api_key = $org_api_key;
+    $sale_app_id = $org_app_id;
+} else {
+    echo "Using MERCHANT credentials (purchaser credentials not found)\n";
+    echo "  api_key: " . substr($api_key, 0, 8) . "...\n";
+    echo "  app_id: $app_id\n";
+    $sale_api_key = $api_key;
+    $sale_app_id = $app_id;
+}
+
 $sale_data = array(
     'amount' => 1.00,
     'orgId' => $org_id,
@@ -185,15 +249,15 @@ echo "Request body:\n";
 print_r($sale_data);
 
 // Use the purchaser org's credentials for the sale transaction
-$result4 = make_request('POST', $base_url . '/transaction/sale', $sale_data, $org_api_key, $org_app_id);
+$result4 = make_request('POST', $base_url . '/transaction/sale', $sale_data, $sale_api_key, $sale_app_id);
 echo "HTTP: " . $result4['http_code'] . "\n";
 print_r($result4['response']);
 
 if ($result4['http_code'] < 200 || $result4['http_code'] >= 300) {
-    echo "\n❌ Step 4 FAILED\n";
+    echo "\n[X] Step 4 FAILED\n";
     echo "Error: " . ($result4['response']['error']['message'] ?? $result4['response']['message'] ?? 'Unknown error') . "\n";
 } else {
-    echo "\n✅ Step 4 SUCCESS - Transaction completed!\n";
+    echo "\n[OK] Step 4 SUCCESS - Transaction completed!\n";
     echo "Transaction ID: " . ($result4['response']['id'] ?? 'N/A') . "\n";
 }
 

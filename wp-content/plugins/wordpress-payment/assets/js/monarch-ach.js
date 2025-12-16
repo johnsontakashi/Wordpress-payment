@@ -181,7 +181,7 @@ jQuery(document).ready(function($) {
             // Automatic section (iframe)
             '<div id="modal-auto-section" class="monarch-modal-section">' +
             '<div class="monarch-modal-body">' +
-            '<iframe id="bank-linking-iframe" src="' + url + '" sandbox="allow-same-origin allow-scripts allow-forms allow-popups" onload="handleIframeLoad()" onerror="handleIframeError()"></iframe>' +
+            '<iframe id="bank-linking-iframe" src="' + url + '" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-top-navigation allow-top-navigation-by-user-activation" onload="handleIframeLoad()" onerror="handleIframeError()"></iframe>' +
             '</div>' +
             '<div class="monarch-modal-footer">' +
             '<button type="button" id="monarch-bank-connected-btn" class="button alt">I\'ve Connected My Bank</button>' +
@@ -254,12 +254,23 @@ jQuery(document).ready(function($) {
         // Add global iframe error handlers
         window.handleIframeLoad = function() {
             console.log('Bank linking iframe loaded successfully');
+            // Add visual feedback that iframe loaded
+            $('#bank-linking-iframe').css('border', '2px solid green');
         };
 
         window.handleIframeError = function() {
             console.log('Bank linking iframe failed to load');
             showError('Failed to load bank connection. Please try the manual entry option or refresh the page.');
         };
+
+        // Add a warning message about localhost limitations
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            var localhostWarning = $('<div class="monarch-localhost-warning" style="background:#fff3cd; border:1px solid #ffc107; padding:10px; margin:10px; border-radius:4px; font-size:12px;">' +
+                '<strong>Note:</strong> Embedded bank linking may not work correctly on localhost due to redirect URL restrictions. ' +
+                'If the iframe doesn\'t load or bank linking fails, please use the <strong>Manual Entry</strong> option instead.' +
+                '</div>');
+            $('#modal-auto-section .monarch-modal-body').prepend(localhostWarning);
+        }
     }
 
     // Handle messages from Monarch iframe

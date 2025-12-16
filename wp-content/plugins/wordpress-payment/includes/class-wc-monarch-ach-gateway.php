@@ -608,6 +608,13 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 'has_purchaser_credentials' => !empty($purchaser_api_key)
             ));
 
+            // Log the bank linking URL for debugging
+            $logger->debug('Bank linking URL details', array(
+                'original_url' => $org_result['data']['partner_embedded_url'] ?? 'not set',
+                'cleaned_url' => $bank_linking_url,
+                'has_placeholders' => strpos($bank_linking_url, '{') !== false
+            ));
+
             wp_send_json_success(array(
                 'org_id' => $org_id,
                 'user_id' => $user_id,
