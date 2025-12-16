@@ -123,24 +123,33 @@ jQuery(document).ready(function($) {
 
         console.log('Original bank linking URL from Monarch:', connectionUrl);
 
+        // Get the current page URL for callbacks
+        const currentUrl = window.location.href;
+        let locationUrl = currentUrl.split('?')[0]; // Clean URL without query params
+
         // Clean up URL formatting and replace placeholders properly
         if (url.includes('{redirectUrl}') || url.includes('{price}')) {
-            // Get the current checkout URL
-            const currentUrl = window.location.href;
-            let redirectUrl = currentUrl.split('?')[0]; // Remove query params for cleaner URL
-            
-            // Ensure redirectUrl is properly formatted and not double-encoded
-            if (redirectUrl.startsWith('http://localhost') || redirectUrl.startsWith('https://localhost')) {
-                // For localhost, use a simpler callback approach
-                redirectUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
-            }
-            
             // Replace placeholders with actual values
             url = url.replace(/\{price\}/g, '100'); // Default price or get from order
             // Only encode the redirect URL once
-            url = url.replace(/\{redirectUrl\}/g, encodeURIComponent(redirectUrl));
-            
-            console.log('Replaced URL placeholders - redirectUrl:', redirectUrl, 'price: 100');
+            url = url.replace(/\{redirectUrl\}/g, encodeURIComponent(locationUrl));
+
+            console.log('Replaced URL placeholders - redirectUrl:', locationUrl, 'price: 100');
+        }
+
+        // Add locationURL parameter for Yodlee FastLink postMessage support
+        // This is required for postMessage callbacks to work (especially on localhost)
+        // See: https://developer.yodlee.com/docs/fastlink/4.0/advanced
+        if (!url.includes('locationURL=') && !url.includes('locationUrl=')) {
+            const separator = url.includes('?') ? '&' : (url.includes('#') ? '&' : '?');
+            // For hash-based URLs, we need to add it before the hash or within the hash params
+            if (url.includes('#')) {
+                // Add locationURL to the hash fragment parameters
+                url = url + '&locationURL=' + encodeURIComponent(locationUrl);
+            } else {
+                url = url + separator + 'locationURL=' + encodeURIComponent(locationUrl);
+            }
+            console.log('Added locationURL parameter for postMessage support:', locationUrl);
         }
 
         // Fix malformed URLs with multiple hash fragments
@@ -263,17 +272,19 @@ jQuery(document).ready(function($) {
             showError('Failed to load bank connection. Please try the manual entry option or refresh the page.');
         };
 
-        // Add a warning message about localhost limitations
+        // Add informational message for localhost development
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            var localhostWarning = $('<div class="monarch-localhost-warning" style="background:#fff3cd; border:1px solid #ffc107; padding:10px; margin:10px; border-radius:4px; font-size:12px;">' +
-                '<strong>Note:</strong> Embedded bank linking may not work correctly on localhost due to redirect URL restrictions. ' +
-                'If the iframe doesn\'t load or bank linking fails, please use the <strong>Manual Entry</strong> option instead.' +
+            var localhostInfo = $('<div class="monarch-localhost-info" style="background:#d1ecf1; border:1px solid #bee5eb; padding:10px; margin:10px; border-radius:4px; font-size:12px;">' +
+                '<strong>Development Mode:</strong> Complete the bank linking process in the iframe, then click "I\'ve Connected My Bank" to verify. ' +
+                'If you experience issues, the <strong>Manual Entry</strong> option is also available.' +
                 '</div>');
-            $('#modal-auto-section .monarch-modal-body').prepend(localhostWarning);
+            $('#modal-auto-section .monarch-modal-body').prepend(localhostInfo);
         }
     }
 
     // Handle messages from Monarch iframe
+    // Supports Yodlee FastLink 4 callbacks: onSuccess, onClose, onError, onEvent
+    // See: https://developer.yodlee.com/docs/fastlink/4.0/advanced
     function handleBankMessage(event) {
         try {
             // Log all messages for debugging
@@ -288,12 +299,20 @@ jQuery(document).ready(function($) {
                 'https://dag2.yodlee.com',
                 'https://fl4.prod.yodlee.com',
                 'https://node.yodlee.com',
-                'https://fastlink.yodlee.com'
+                'https://fastlink.yodlee.com',
+                'https://finapp.yodlee.com',
+                'https://aggregation.yodlee.com'
             ];
 
-            const isAllowed = allowedOrigins.some(origin => event.origin.startsWith(origin) || event.origin.includes('yodlee') || event.origin.includes('monarch'));
+            const isAllowed = allowedOrigins.some(origin =>
+                event.origin.startsWith(origin) ||
+                event.origin.includes('yodlee') ||
+                event.origin.includes('monarch') ||
+                event.origin.includes('envestnet')
+            );
 
             if (!isAllowed) {
+                console.log('Message from non-allowed origin, ignoring:', event.origin);
                 return;
             }
 
@@ -304,59 +323,136 @@ jQuery(document).ready(function($) {
                 return;
             }
 
-            // Handle Yodlee FastLink messages
-            if (event.data && typeof event.data === 'object') {
-                // Parse string data if needed
-                let messageData = event.data;
-                if (typeof event.data === 'string') {
-                    try {
-                        messageData = JSON.parse(event.data);
-                    } catch (e) {
-                        // Not JSON, check for specific strings
-                        if (event.data.includes('SUCCESS') || event.data.includes('COMPLETE')) {
-                            console.log('Bank linking success detected from string message');
-                            triggerBankVerification();
-                            return;
-                        }
+            // Parse message data
+            let messageData = event.data;
+            if (typeof event.data === 'string') {
+                try {
+                    messageData = JSON.parse(event.data);
+                } catch (e) {
+                    // Not JSON, check for specific strings
+                    if (event.data.includes('SUCCESS') || event.data.includes('COMPLETE')) {
+                        console.log('Bank linking success detected from string message');
+                        triggerBankVerification();
+                        return;
                     }
-                }
-
-                // Yodlee FastLink success - multiple possible formats
-                if (messageData.fnToCall === 'accountStatus' ||
-                    messageData.status === 'SUCCESS' ||
-                    messageData.type === 'POST_MESSAGE' ||
-                    messageData.sites || // Yodlee returns sites array on success
-                    (messageData.providerAccountId && messageData.providerId)) {
-
-                    console.log('Bank linking successful! Triggering verification...');
-                    triggerBankVerification();
-                    return;
-                }
-
-                // Handle direct PayToken messages from Monarch
-                const payTokenId = messageData.payTokenId || messageData.paytoken_id || messageData.paytokenId || messageData._id;
-                if (payTokenId) {
-                    console.log('Received PayToken ID directly:', payTokenId);
-                    completeBankConnection(payTokenId);
-                    return;
-                }
-
-                // Handle close/exit messages - user completed or cancelled
-                if (messageData.action === 'exit' || messageData.fnToCall === 'close') {
-                    console.log('Iframe exit/close detected, checking bank status...');
-                    triggerBankVerification();
-                    return;
-                }
-
-                // Handle generic success messages
-                if (messageData.type === 'BANK_CONNECTION_SUCCESS' ||
-                    messageData.success === true ||
-                    messageData.action === 'bankConnected') {
-                    console.log('Bank connection completed via success message');
-                    triggerBankVerification();
                     return;
                 }
             }
+
+            if (!messageData || typeof messageData !== 'object') {
+                return;
+            }
+
+            // =====================================================
+            // Handle Yodlee FastLink 4 callback events
+            // =====================================================
+
+            // onSuccess callback - account successfully added
+            // Contains: providerAccountId, requestId, status='SUCCESS', additionalStatus
+            if (messageData.fnToCall === 'onSuccess' ||
+                (messageData.status === 'SUCCESS' && messageData.providerAccountId)) {
+                console.log('FastLink onSuccess callback received:', messageData);
+                console.log('Provider Account ID:', messageData.providerAccountId);
+                triggerBankVerification();
+                return;
+            }
+
+            // onClose callback - user closed or completed flow
+            // Contains: action, sites array, status
+            if (messageData.fnToCall === 'onClose' || messageData.fnToCall === 'close') {
+                console.log('FastLink onClose callback received:', messageData);
+                // Check if there are successfully linked sites
+                if (messageData.sites && messageData.sites.length > 0) {
+                    const successSites = messageData.sites.filter(s => s.status === 'SUCCESS');
+                    if (successSites.length > 0) {
+                        console.log('Successfully linked sites found:', successSites);
+                        triggerBankVerification();
+                        return;
+                    }
+                }
+                // User closed without completing - still check in case linking completed
+                if (messageData.action !== 'exit' || messageData.status === 'SUCCESS') {
+                    triggerBankVerification();
+                }
+                return;
+            }
+
+            // onError callback - error occurred
+            if (messageData.fnToCall === 'onError') {
+                console.log('FastLink onError callback received:', messageData);
+                console.error('FastLink error:', messageData.code, messageData.message);
+                // Don't automatically fail - let user retry or use manual
+                return;
+            }
+
+            // onEvent callback - intermediate status updates
+            if (messageData.fnToCall === 'onEvent') {
+                console.log('FastLink onEvent callback received:', messageData);
+                // Could show progress to user here
+                return;
+            }
+
+            // =====================================================
+            // Handle other message formats (legacy/Monarch-specific)
+            // =====================================================
+
+            // Yodlee accountStatus function call
+            if (messageData.fnToCall === 'accountStatus') {
+                console.log('accountStatus callback received');
+                triggerBankVerification();
+                return;
+            }
+
+            // POST_MESSAGE type from Yodlee
+            if (messageData.type === 'POST_MESSAGE') {
+                console.log('POST_MESSAGE received, checking for success indicators');
+                if (messageData.providerAccountId || messageData.status === 'SUCCESS') {
+                    triggerBankVerification();
+                }
+                return;
+            }
+
+            // Sites array present (Yodlee success indicator)
+            if (messageData.sites && Array.isArray(messageData.sites)) {
+                console.log('Sites array received:', messageData.sites);
+                triggerBankVerification();
+                return;
+            }
+
+            // Provider account linked
+            if (messageData.providerAccountId && messageData.providerId) {
+                console.log('Provider account linked:', messageData.providerAccountId);
+                triggerBankVerification();
+                return;
+            }
+
+            // Direct PayToken from Monarch
+            const payTokenId = messageData.payTokenId || messageData.paytoken_id || messageData.paytokenId || messageData._id;
+            if (payTokenId) {
+                console.log('Received PayToken ID directly:', payTokenId);
+                completeBankConnection(payTokenId);
+                return;
+            }
+
+            // Exit action
+            if (messageData.action === 'exit') {
+                console.log('Exit action received, checking bank status...');
+                triggerBankVerification();
+                return;
+            }
+
+            // Generic success indicators
+            if (messageData.type === 'BANK_CONNECTION_SUCCESS' ||
+                messageData.success === true ||
+                messageData.action === 'bankConnected' ||
+                messageData.status === 'SUCCESS') {
+                console.log('Bank connection success indicator received');
+                triggerBankVerification();
+                return;
+            }
+
+            console.log('Unhandled message format:', messageData);
+
         } catch (error) {
             console.error('Error handling postMessage:', error);
         }
