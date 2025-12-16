@@ -134,11 +134,22 @@ class Monarch_API {
     /**
      * Get latest PayToken for an organization
      * Used after embedded bank linking to retrieve the paytoken
-     * @param string $org_id The organization ID
+     * Per Monarch documentation: GET /v1/getlatestpaytoken/{organizationID}
+     * @param string $org_id The organization ID (e.g., "5473522089")
      * @return array Response with success status and paytoken data
      */
     public function get_latest_paytoken($org_id) {
+        // IMPORTANT: Use the correct endpoint /getlatestpaytoken/ NOT /organization/
         $url = $this->base_url . '/getlatestpaytoken/' . $org_id;
+
+        // Log for debugging
+        $logger = WC_Monarch_Logger::instance();
+        $logger->debug('get_latest_paytoken called', array(
+            'org_id' => $org_id,
+            'full_url' => $url,
+            'api_key_last_4' => substr($this->api_key, -4),
+            'app_id' => $this->app_id
+        ));
 
         return $this->make_request('GET', $url);
     }
