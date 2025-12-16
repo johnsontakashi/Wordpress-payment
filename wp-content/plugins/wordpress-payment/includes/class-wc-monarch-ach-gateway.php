@@ -42,6 +42,8 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         add_action('wp_ajax_nopriv_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
         add_action('wp_ajax_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
         add_action('wp_ajax_nopriv_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
+        add_action('wp_ajax_monarch_get_latest_paytoken', array($this, 'ajax_get_latest_paytoken'));
+        add_action('wp_ajax_nopriv_monarch_get_latest_paytoken', array($this, 'ajax_get_latest_paytoken'));
         add_action('wp_ajax_monarch_disconnect_bank', array($this, 'ajax_disconnect_bank'));
         add_action('wp_ajax_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
         add_action('wp_ajax_nopriv_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
@@ -705,6 +707,77 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
 
         } catch (Exception $e) {
             wp_send_json_error('Error checking bank status: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * AJAX handler for getting latest paytoken after embedded bank linking
+     * This is the correct flow per Monarch documentation:
+     * After user links bank in iframe, call /v1/getlatestpaytoken/[organizationID]
+     */
+    public function ajax_get_latest_paytoken() {
+        check_ajax_referer('monarch_ach_nonce', 'nonce');
+
+        if (!is_user_logged_in()) {
+            wp_send_json_error('User must be logged in');
+        }
+
+        $org_id = sanitize_text_field($_POST['org_id']);
+
+        if (!$org_id) {
+            wp_send_json_error('Organization ID is required');
+        }
+
+        try {
+            // Initialize Monarch API
+            $monarch_api = new Monarch_API(
+                $this->api_key,
+                $this->app_id,
+                $this->merchant_org_id,
+                $this->partner_name,
+                $this->testmode
+            );
+
+            // Call getLatestPayToken API endpoint
+            $result = $monarch_api->get_latest_paytoken($org_id);
+
+            if ($result['success']) {
+                $data = $result['data'];
+
+                // Extract paytoken ID from response
+                // The API may return it in different formats, so check multiple possible fields
+                $paytoken_id = $data['_id'] ?? $data['payTokenId'] ?? $data['paytoken_id'] ?? null;
+
+                if ($paytoken_id) {
+                    // Store the paytoken for the current user
+                    $customer_id = get_current_user_id();
+                    update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
+
+                    // Log success
+                    $logger = WC_Monarch_Logger::instance();
+                    $logger->log_customer_event('paytoken_retrieved', $customer_id, array(
+                        'org_id' => $org_id,
+                        'paytoken_id' => $paytoken_id
+                    ));
+
+                    wp_send_json_success(array(
+                        'connected' => true,
+                        'paytoken_id' => $paytoken_id,
+                        'org_id' => $org_id,
+                        'message' => 'Bank account connected successfully'
+                    ));
+                } else {
+                    // No paytoken found - bank linking may not be complete yet
+                    wp_send_json_error('Bank account not yet linked. Please complete the bank linking process and try again.');
+                }
+            } else {
+                // API call failed
+                $error_message = $result['error'] ?? 'Failed to retrieve paytoken';
+                wp_send_json_error($error_message);
+            }
+
+        } catch (Exception $e) {
+            wp_send_json_error('Error retrieving paytoken: ' . $e->getMessage());
         }
     }
 

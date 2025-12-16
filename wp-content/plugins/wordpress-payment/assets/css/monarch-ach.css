@@ -255,6 +255,34 @@
     font-size: 14px;
 }
 
+/* Instructions styling */
+.monarch-modal-instructions {
+    background: #e7f3ff;
+    padding: 15px 20px;
+    border-radius: 6px;
+    margin-bottom: 15px;
+    text-align: left;
+    border: 1px solid #b8daff;
+}
+
+.monarch-modal-instructions p {
+    margin: 0 0 10px 0;
+    color: #004085;
+    font-size: 14px;
+}
+
+.monarch-modal-instructions ol {
+    margin: 0;
+    padding-left: 20px;
+    color: #004085;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.monarch-modal-instructions ol li {
+    margin-bottom: 5px;
+}
+
 #monarch-bank-connected-btn {
     background: #28a745;
     color: white;
@@ -274,6 +302,22 @@
 #monarch-bank-connected-btn:disabled {
     background: #6c757d;
     cursor: not-allowed;
+}
+
+/* Success pulse animation */
+#monarch-bank-connected-btn.success-pulse {
+    animation: successPulse 1s ease-in-out infinite;
+}
+
+@keyframes successPulse {
+    0%, 100% {
+        background: #28a745;
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    50% {
+        background: #218838;
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+    }
 }
 
 #close-bank-modal {
