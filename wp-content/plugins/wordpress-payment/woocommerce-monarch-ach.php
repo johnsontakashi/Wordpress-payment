@@ -62,6 +62,8 @@ class WC_Monarch_ACH_Gateway_Plugin {
         add_action('wp_ajax_nopriv_monarch_bank_connection_complete', array($this, 'ajax_bank_connection_complete'));
         add_action('wp_ajax_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
         add_action('wp_ajax_nopriv_monarch_check_bank_status', array($this, 'ajax_check_bank_status'));
+        add_action('wp_ajax_monarch_get_latest_paytoken', array($this, 'ajax_get_latest_paytoken'));
+        add_action('wp_ajax_nopriv_monarch_get_latest_paytoken', array($this, 'ajax_get_latest_paytoken'));
         add_action('wp_ajax_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
         add_action('wp_ajax_nopriv_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
         // CRON manual status update handler
@@ -113,6 +115,14 @@ class WC_Monarch_ACH_Gateway_Plugin {
     public function ajax_check_bank_status() {
         $gateway = $this->get_gateway();
         $gateway->ajax_check_bank_status();
+    }
+
+    /**
+     * AJAX handler for getting latest paytoken
+     */
+    public function ajax_get_latest_paytoken() {
+        $gateway = $this->get_gateway();
+        $gateway->ajax_get_latest_paytoken();
     }
 
     /**

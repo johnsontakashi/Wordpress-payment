@@ -4,8 +4,25 @@
  * This tests the complete embedded bank linking flow
  */
 
-// Load WordPress
-require_once(__DIR__ . '/../../../../wp-load.php');
+// Load WordPress - try different path formats for cross-platform compatibility
+$wp_load_paths = array(
+    __DIR__ . '/../../../../wp-load.php',  // Linux/Mac
+    dirname(dirname(dirname(dirname(__DIR__)))) . '/wp-load.php',  // Alternative
+    $_SERVER['DOCUMENT_ROOT'] . '/payment/wp-load.php',  // Windows XAMPP
+);
+
+$loaded = false;
+foreach ($wp_load_paths as $path) {
+    if (file_exists($path)) {
+        require_once($path);
+        $loaded = true;
+        break;
+    }
+}
+
+if (!$loaded) {
+    die('Could not find wp-load.php. Tried paths: ' . implode(', ', $wp_load_paths));
+}
 
 // Check if user is admin
 if (!current_user_can('manage_options')) {

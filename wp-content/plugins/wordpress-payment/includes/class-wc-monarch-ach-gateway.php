@@ -716,16 +716,31 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
      * After user links bank in iframe, call /v1/getlatestpaytoken/[organizationID]
      */
     public function ajax_get_latest_paytoken() {
-        check_ajax_referer('monarch_ach_nonce', 'nonce');
+        // Log the request for debugging
+        $logger = WC_Monarch_Logger::instance();
+        $logger->debug('ajax_get_latest_paytoken called', array(
+            'post_data' => $_POST,
+            'is_user_logged_in' => is_user_logged_in()
+        ));
 
-        if (!is_user_logged_in()) {
-            wp_send_json_error('User must be logged in');
+        // Verify nonce
+        if (!check_ajax_referer('monarch_ach_nonce', 'nonce', false)) {
+            $logger->error('Nonce verification failed');
+            wp_send_json_error('Security check failed. Please refresh the page and try again.');
+            return;
         }
 
-        $org_id = sanitize_text_field($_POST['org_id']);
+        // Check if user is logged in (allow guest checkout)
+        if (!is_user_logged_in() && !isset($_POST['org_id'])) {
+            wp_send_json_error('User must be logged in or provide organization ID');
+            return;
+        }
 
-        if (!$org_id) {
+        $org_id = isset($_POST['org_id']) ? sanitize_text_field($_POST['org_id']) : '';
+
+        if (empty($org_id)) {
             wp_send_json_error('Organization ID is required');
+            return;
         }
 
         try {
