@@ -517,6 +517,14 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 wp_send_json_error($org_result['error']);
             }
 
+            // Log full response structure for debugging credential extraction
+            $logger->debug('Create Organization full response', array(
+                'response_keys' => array_keys($org_result['data'] ?? []),
+                'has_api_key' => isset($org_result['data']['api']),
+                'api_structure' => isset($org_result['data']['api']) ? array_keys($org_result['data']['api']) : 'not present',
+                'full_response' => $org_result['data']
+            ));
+
             $user_id = $org_result['data']['_id'];
             $org_id = $org_result['data']['orgId'];
             $bank_linking_url = $org_result['data']['partner_embedded_url'] ?? $org_result['data']['bankLinkingUrl'] ?? $org_result['data']['connectionUrl'] ?? '';
@@ -555,21 +563,49 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_temp_user_id', $user_id);
 
             // Store the purchaser org's API credentials for transactions
+            // The Monarch API returns credentials in response.data.api.sandbox or response.data.api.prod
             $org_api = $org_result['data']['api'] ?? null;
+            $purchaser_api_key = null;
+            $purchaser_app_id = null;
+
             if ($org_api) {
                 $credentials_key = $this->testmode ? 'sandbox' : 'prod';
                 $org_credentials = $org_api[$credentials_key] ?? null;
                 if ($org_credentials) {
-                    update_user_meta($customer_id, '_monarch_temp_org_api_key', $org_credentials['api_key']);
-                    update_user_meta($customer_id, '_monarch_temp_org_app_id', $org_credentials['app_id']);
+                    $purchaser_api_key = $org_credentials['api_key'] ?? $org_credentials['apiKey'] ?? null;
+                    $purchaser_app_id = $org_credentials['app_id'] ?? $org_credentials['appId'] ?? null;
                 }
             }
 
+            // If credentials not found in expected location, try alternative paths
+            if (!$purchaser_api_key) {
+                $purchaser_api_key = $org_result['data']['apiKey'] ?? $org_result['data']['api_key'] ?? null;
+            }
+            if (!$purchaser_app_id) {
+                $purchaser_app_id = $org_result['data']['appId'] ?? $org_result['data']['app_id'] ?? null;
+            }
+
+            // Save purchaser credentials if found
+            if ($purchaser_api_key && $purchaser_app_id) {
+                update_user_meta($customer_id, '_monarch_temp_org_api_key', $purchaser_api_key);
+                update_user_meta($customer_id, '_monarch_temp_org_app_id', $purchaser_app_id);
+                $logger->debug('Purchaser credentials saved', array(
+                    'api_key_last_4' => substr($purchaser_api_key, -4),
+                    'app_id' => $purchaser_app_id
+                ));
+            } else {
+                // Log warning - credentials not found, will fall back to merchant credentials
+                $logger->debug('Purchaser credentials NOT found in response - will use merchant credentials', array(
+                    'org_result_keys' => array_keys($org_result['data'] ?? []),
+                    'api_structure' => $org_api ? array_keys($org_api) : 'null'
+                ));
+            }
+
             // Log organization creation
-            $logger = WC_Monarch_Logger::instance();
             $logger->log_customer_event('organization_created', $customer_id, array(
                 'org_id' => $org_id,
-                'user_id' => $user_id
+                'user_id' => $user_id,
+                'has_purchaser_credentials' => !empty($purchaser_api_key)
             ));
 
             wp_send_json_success(array(
@@ -585,39 +621,40 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     
     /**
      * AJAX handler for bank connection completion
+     *
+     * For EMBEDDED bank linking flow:
+     * - PayToken is automatically created and assigned by Monarch when user completes bank linking
+     * - We only need to save the paytoken_id retrieved from getLatestPayToken
+     * - NO need to call assign_paytoken() - Monarch handles this automatically
      */
     public function ajax_bank_connection_complete() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
-        
+
         if (!is_user_logged_in()) {
             wp_send_json_error('User must be logged in');
         }
-        
+
         $customer_id = get_current_user_id();
         $org_id = get_user_meta($customer_id, '_monarch_temp_org_id', true);
         $user_id = get_user_meta($customer_id, '_monarch_temp_user_id', true);
         $paytoken_id = sanitize_text_field($_POST['paytoken_id']);
-        
+
         if (!$org_id || !$user_id || !$paytoken_id) {
             wp_send_json_error('Missing organization or paytoken data');
         }
-        
+
         try {
-            $monarch_api = new Monarch_API(
-                $this->api_key,
-                $this->app_id,
-                $this->merchant_org_id,
-                $this->partner_name,
-                $this->testmode
-            );
-            
-            // Assign PayToken to organization
-            $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
-            
-            if (!$assign_result['success']) {
-                wp_send_json_error('Failed to assign bank account: ' . $assign_result['error']);
-            }
-            
+            $logger = WC_Monarch_Logger::instance();
+
+            // For embedded bank linking, PayToken is already created and assigned by Monarch
+            // We just need to save the data to user meta
+            $logger->debug('Bank connection complete - saving data', array(
+                'org_id' => $org_id,
+                'user_id' => $user_id,
+                'paytoken_id' => $paytoken_id,
+                'flow' => 'embedded_bank_linking'
+            ));
+
             // Save permanent user data
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
@@ -638,7 +675,6 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             delete_user_meta($customer_id, '_monarch_temp_org_app_id');
 
             // Log bank connection
-            $logger = WC_Monarch_Logger::instance();
             $logger->log_customer_event('bank_connected', $customer_id, array(
                 'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id
@@ -648,7 +684,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 'org_id' => $org_id,
                 'paytoken_id' => $paytoken_id
             ));
-            
+
         } catch (Exception $e) {
             wp_send_json_error('Bank connection completion failed: ' . $e->getMessage());
         }
@@ -656,6 +692,9 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
 
     /**
      * AJAX handler for checking bank connection status
+     *
+     * IMPORTANT: Must use the PURCHASER's API credentials
+     * The orgId must be associated with the security headers being used.
      */
     public function ajax_check_bank_status() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
@@ -671,6 +710,17 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         }
 
         try {
+            $customer_id = get_current_user_id();
+
+            // IMPORTANT: Use the PURCHASER's API credentials
+            // The orgId must be associated with the security headers being used
+            $purchaser_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
+            $purchaser_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
+
+            // Use purchaser credentials if available, otherwise fall back to merchant credentials
+            $api_key_to_use = $purchaser_api_key ?: $this->api_key;
+            $app_id_to_use = $purchaser_app_id ?: $this->app_id;
+
             // Query Monarch API to get organization details including paytokens
             $api_url = $this->testmode
                 ? 'https://devapi.monarch.is/v1'
@@ -679,8 +729,8 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             $response = wp_remote_get($api_url . '/organization/' . $org_id, array(
                 'headers' => array(
                     'accept' => 'application/json',
-                    'X-API-KEY' => $this->api_key,
-                    'X-APP-ID' => $this->app_id
+                    'X-API-KEY' => $api_key_to_use,
+                    'X-APP-ID' => $app_id_to_use
                 ),
                 'timeout' => 30
             ));
@@ -725,19 +775,12 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
      * AJAX handler for getting latest paytoken after embedded bank linking
      * This is the correct flow per Monarch documentation:
      * After user links bank in iframe, call /v1/getlatestpaytoken/[organizationID]
+     *
+     * IMPORTANT: Must use the PURCHASER's API credentials (returned when organization was created)
+     * NOT the merchant's credentials. The orgId must be associated with the security headers.
      */
     public function ajax_get_latest_paytoken() {
-        // Log the request for debugging
         $logger = WC_Monarch_Logger::instance();
-        $logger->debug('ajax_get_latest_paytoken called', array(
-            'post_data' => $_POST,
-            'is_user_logged_in' => is_user_logged_in(),
-            'api_key_last_4' => substr($this->api_key, -4),
-            'app_id_last_4' => substr($this->app_id, -4),
-            'merchant_org_id' => $this->merchant_org_id,
-            'testmode' => $this->testmode ? 'yes' : 'no',
-            'base_url' => $this->testmode ? 'https://devapi.monarch.is/v1' : 'https://api.monarch.is/v1'
-        ));
 
         // Verify nonce
         if (!check_ajax_referer('monarch_ach_nonce', 'nonce', false)) {
@@ -760,10 +803,32 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         }
 
         try {
-            // Initialize Monarch API
+            $customer_id = get_current_user_id();
+
+            // IMPORTANT: Use the PURCHASER's API credentials for getLatestPayToken
+            // The orgId must be associated with the security headers being used
+            $purchaser_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
+            $purchaser_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
+
+            // Log credentials being used
+            $logger->debug('ajax_get_latest_paytoken called', array(
+                'org_id' => $org_id,
+                'using_purchaser_credentials' => !empty($purchaser_api_key),
+                'purchaser_api_key_last_4' => $purchaser_api_key ? substr($purchaser_api_key, -4) : 'N/A',
+                'purchaser_app_id' => $purchaser_app_id ?: 'N/A',
+                'merchant_api_key_last_4' => substr($this->api_key, -4),
+                'merchant_app_id' => $this->app_id,
+                'testmode' => $this->testmode ? 'yes' : 'no'
+            ));
+
+            // Use purchaser credentials if available, otherwise fall back to merchant credentials
+            $api_key_to_use = $purchaser_api_key ?: $this->api_key;
+            $app_id_to_use = $purchaser_app_id ?: $this->app_id;
+
+            // Initialize Monarch API with the correct credentials
             $monarch_api = new Monarch_API(
-                $this->api_key,
-                $this->app_id,
+                $api_key_to_use,
+                $app_id_to_use,
                 $this->merchant_org_id,
                 $this->partner_name,
                 $this->testmode
@@ -777,15 +842,20 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
 
                 // Extract paytoken ID from response
                 // The API may return it in different formats, so check multiple possible fields
-                $paytoken_id = $data['_id'] ?? $data['payTokenId'] ?? $data['paytoken_id'] ?? null;
+                $paytoken_id = $data['_id'] ?? $data['payTokenId'] ?? $data['paytoken_id'] ?? $data['payToken'] ?? null;
 
                 if ($paytoken_id) {
                     // Store the paytoken for the current user
                     $customer_id = get_current_user_id();
                     update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
 
+                    // Also store org_id permanently now that bank is linked
+                    $temp_org_id = get_user_meta($customer_id, '_monarch_temp_org_id', true);
+                    if ($temp_org_id) {
+                        update_user_meta($customer_id, '_monarch_org_id', $temp_org_id);
+                    }
+
                     // Log success
-                    $logger = WC_Monarch_Logger::instance();
                     $logger->log_customer_event('paytoken_retrieved', $customer_id, array(
                         'org_id' => $org_id,
                         'paytoken_id' => $paytoken_id
@@ -799,12 +869,33 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                     ));
                 } else {
                     // No paytoken found - bank linking may not be complete yet
-                    wp_send_json_error('Bank account not yet linked. Please complete the bank linking process and try again.');
+                    $logger->debug('PayToken not found in response', array(
+                        'org_id' => $org_id,
+                        'response_data' => $data
+                    ));
+                    wp_send_json_error('PayToken not found. Please complete bank linking first.');
                 }
             } else {
-                // API call failed
+                // API call failed - could be 404 (no paytoken) or other error
                 $error_message = $result['error'] ?? 'Failed to retrieve paytoken';
-                wp_send_json_error($error_message);
+                $status_code = $result['status_code'] ?? 0;
+
+                $logger->debug('getLatestPayToken API failed', array(
+                    'org_id' => $org_id,
+                    'error' => $error_message,
+                    'status_code' => $status_code,
+                    'using_purchaser_credentials' => !empty($purchaser_api_key),
+                    'full_response' => $result
+                ));
+
+                // 404 typically means no paytoken exists yet
+                if ($status_code == 404 || strpos(strtolower($error_message), 'not found') !== false) {
+                    $creds_info = !empty($purchaser_api_key) ? '(using purchaser credentials)' : '(using merchant credentials - purchaser credentials not found)';
+                    wp_send_json_error('PayToken not found ' . $creds_info . '. Bank linking may not be complete yet.');
+                } else {
+                    $creds_info = !empty($purchaser_api_key) ? '(purchaser creds)' : '(merchant creds)';
+                    wp_send_json_error($error_message . ' ' . $creds_info);
+                }
             }
 
         } catch (Exception $e) {

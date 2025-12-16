@@ -1,1 +1,0 @@
-[10-Dec-2025 20:32:29 UTC] PHP Warning:  mysqli_real_connect(): (HY000/1045): Access denied for user 'root'@'localhost' (using password: YES) in /home/houseph/Project/Wordpress-payment/wp-includes/class-wpdb.php on line 1988

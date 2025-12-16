@@ -8,8 +8,8 @@ error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 // Your Monarch sandbox credentials
-$api_key = '556e3d05-f342-4ee7-9047-84ce23c4d361';
-$app_id = 'e4de843f';
+$api_key = '20c475ff-f5a1-4010-899b-d363dccf8447';
+$app_id = 'b7991959';
 $merchant_org_id = '5253091918';
 $partner_name = 'houseph';
 $base_url = 'https://devapi.monarch.is/v1';

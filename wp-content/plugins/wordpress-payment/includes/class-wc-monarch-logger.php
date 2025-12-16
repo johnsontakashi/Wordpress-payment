@@ -36,11 +36,11 @@ class WC_Monarch_Logger {
     
     /**
      * Log debug message
+     * Always logs to help diagnose issues with Monarch API integration
      */
     public function debug($message, $context = array()) {
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            $this->log('debug', $message, $context);
-        }
+        // Always log debug messages for Monarch ACH to help diagnose API issues
+        $this->log('debug', $message, $context);
     }
     
     /**

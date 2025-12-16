@@ -276,13 +276,13 @@ jQuery(document).ready(function($) {
                 'https://app.monarch.is',
                 'https://dag2.yodlee.com',
                 'https://fl4.prod.yodlee.com',
-                'https://node.yodlee.com'
+                'https://node.yodlee.com',
+                'https://fastlink.yodlee.com'
             ];
 
-            const isAllowed = allowedOrigins.some(origin => event.origin.startsWith(origin));
+            const isAllowed = allowedOrigins.some(origin => event.origin.startsWith(origin) || event.origin.includes('yodlee') || event.origin.includes('monarch'));
 
             if (!isAllowed) {
-                // Silently ignore messages from other origins (browser extensions, etc.)
                 return;
             }
 
@@ -293,41 +293,57 @@ jQuery(document).ready(function($) {
                 return;
             }
 
-            // Handle Yodlee FastLink success messages
+            // Handle Yodlee FastLink messages
             if (event.data && typeof event.data === 'object') {
-                // Yodlee sends: {status: "SUCCESS", providerId: XXX, providerAccountId: YYY, fnToCall: "accountStatus", ...}
-                if (event.data.fnToCall === 'accountStatus' ||
-                    (event.data.status === 'SUCCESS' && event.data.providerAccountId)) {
-
-                    console.log('Bank linking successful! Auto-clicking confirmation button...');
-
-                    // Show visual feedback
-                    $('#monarch-bank-connected-btn').text('Connection Successful! Verifying...').addClass('success-pulse');
-
-                    // Wait 1 second then auto-click
-                    setTimeout(function() {
-                        if ($('#monarch-bank-connected-btn').length) {
-                            $('#monarch-bank-connected-btn').click();
+                // Parse string data if needed
+                let messageData = event.data;
+                if (typeof event.data === 'string') {
+                    try {
+                        messageData = JSON.parse(event.data);
+                    } catch (e) {
+                        // Not JSON, check for specific strings
+                        if (event.data.includes('SUCCESS') || event.data.includes('COMPLETE')) {
+                            console.log('Bank linking success detected from string message');
+                            triggerBankVerification();
+                            return;
                         }
-                    }, 1000);
+                    }
+                }
+
+                // Yodlee FastLink success - multiple possible formats
+                if (messageData.fnToCall === 'accountStatus' ||
+                    messageData.status === 'SUCCESS' ||
+                    messageData.type === 'POST_MESSAGE' ||
+                    messageData.sites || // Yodlee returns sites array on success
+                    (messageData.providerAccountId && messageData.providerId)) {
+
+                    console.log('Bank linking successful! Triggering verification...');
+                    triggerBankVerification();
                     return;
                 }
 
-                // Handle direct PayToken messages from Monarch (if they send them)
-                const payTokenId = event.data.payTokenId || event.data.paytoken_id || event.data.paytokenId;
+                // Handle direct PayToken messages from Monarch
+                const payTokenId = messageData.payTokenId || messageData.paytoken_id || messageData.paytokenId || messageData._id;
                 if (payTokenId) {
                     console.log('Received PayToken ID directly:', payTokenId);
                     completeBankConnection(payTokenId);
                     return;
                 }
 
+                // Handle close/exit messages - user completed or cancelled
+                if (messageData.action === 'exit' || messageData.fnToCall === 'close') {
+                    console.log('Iframe exit/close detected, checking bank status...');
+                    triggerBankVerification();
+                    return;
+                }
+
                 // Handle generic success messages
-                if (event.data.type === 'BANK_CONNECTION_SUCCESS' ||
-                    (event.data.success === true && event.data.action === 'bankConnected')) {
+                if (messageData.type === 'BANK_CONNECTION_SUCCESS' ||
+                    messageData.success === true ||
+                    messageData.action === 'bankConnected') {
                     console.log('Bank connection completed via success message');
-                    setTimeout(function() {
-                        $('#monarch-bank-connected-btn').click();
-                    }, 1000);
+                    triggerBankVerification();
+                    return;
                 }
             }
         } catch (error) {
@@ -335,11 +351,28 @@ jQuery(document).ready(function($) {
         }
     }
 
+    // Trigger bank verification with a small delay
+    function triggerBankVerification() {
+        $('#monarch-bank-connected-btn').text('Connection Successful! Verifying...').addClass('success-pulse');
+        setTimeout(function() {
+            if ($('#monarch-bank-connected-btn').length && !$('#monarch-bank-connected-btn').prop('disabled')) {
+                $('#monarch-bank-connected-btn').click();
+            }
+        }, 1500);
+    }
+
     // Check if bank connection was successful
     // This calls the /v1/getlatestpaytoken/[organizationID] endpoint
     // Per Monarch embedded bank linking documentation
-    function checkBankConnectionStatus(orgId) {
-        console.log('Checking bank connection status for org:', orgId);
+    // Includes retry logic since paytoken may take a moment to be available after bank linking
+    function checkBankConnectionStatus(orgId, retryCount) {
+        retryCount = retryCount || 0;
+        const maxRetries = 5; // Increased retries
+        const retryDelay = 3000; // 3 seconds between retries (bank linking can take time)
+
+        console.log('Checking bank connection status for org:', orgId, '(attempt', retryCount + 1, 'of', maxRetries + 1, ')');
+
+        $('#monarch-bank-connected-btn').text('Verifying... ' + (retryCount > 0 ? '(Attempt ' + (retryCount + 1) + ')' : ''));
 
         $.ajax({
             url: monarch_ach_params.ajax_url,
@@ -358,16 +391,49 @@ jQuery(document).ready(function($) {
                     console.log('Bank linked successfully, paytoken:', response.data.paytoken_id);
                     completeBankConnection(response.data.paytoken_id);
                 } else {
-                    // Bank not yet connected, show message
-                    var errorMsg = response.data || 'Please complete the bank connection in the window above, then click this button again.';
-                    alert(errorMsg);
-                    $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
+                    // PayToken not found - might need to retry
+                    var errorMsg = response.data || 'PayToken not found';
+                    console.log('PayToken not found:', errorMsg);
+                    console.log('Full response object:', JSON.stringify(response, null, 2));
+
+                    if (retryCount < maxRetries) {
+                        // Retry after delay - paytoken may not be immediately available
+                        console.log('Retrying in', retryDelay, 'ms...');
+                        $('#monarch-bank-connected-btn').text('Verifying... Please wait (' + (maxRetries - retryCount) + ' attempts remaining)');
+                        setTimeout(function() {
+                            checkBankConnectionStatus(orgId, retryCount + 1);
+                        }, retryDelay);
+                    } else {
+                        // Max retries reached - show detailed error
+                        console.error('Max retries reached. Error details:', errorMsg);
+                        var errorDetails = 'Bank connection not detected after ' + (maxRetries + 1) + ' attempts.\n\n';
+                        errorDetails += 'Possible reasons:\n';
+                        errorDetails += '1. Bank linking was not completed in the iframe\n';
+                        errorDetails += '2. The PayToken is still being processed\n';
+                        errorDetails += '3. There may be a credentials mismatch\n\n';
+                        errorDetails += 'Technical details: ' + errorMsg + '\n\n';
+                        errorDetails += 'Please try:\n';
+                        errorDetails += '- Using the "Manual Entry" option instead\n';
+                        errorDetails += '- Refreshing the page and trying again';
+                        alert(errorDetails);
+                        $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
+                    }
                 }
             },
             error: function(xhr, status, error) {
                 console.error('Error retrieving paytoken:', error);
-                alert('Failed to verify bank connection. Please try again or contact support.');
-                $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
+                console.error('XHR response:', xhr.responseText);
+
+                if (retryCount < maxRetries) {
+                    // Retry on error
+                    console.log('Request error, retrying in', retryDelay, 'ms...');
+                    setTimeout(function() {
+                        checkBankConnectionStatus(orgId, retryCount + 1);
+                    }, retryDelay);
+                } else {
+                    alert('Failed to verify bank connection after multiple attempts.\n\nError: ' + error + '\n\nPlease try using the "Manual Entry" option instead.');
+                    $('#monarch-bank-connected-btn').prop('disabled', false).text('I\'ve Connected My Bank');
+                }
             }
         });
     }
