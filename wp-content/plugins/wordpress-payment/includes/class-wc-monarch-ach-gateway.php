@@ -453,11 +453,22 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
      */
     public function ajax_create_organization() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
-        
+
         if (!is_user_logged_in()) {
             wp_send_json_error('User must be logged in');
         }
-        
+
+        // Log credentials being used for debugging
+        $logger = WC_Monarch_Logger::instance();
+        $logger->debug('ajax_create_organization called', array(
+            'api_key_last_4' => substr($this->api_key, -4),
+            'app_id_last_4' => substr($this->app_id, -4),
+            'merchant_org_id' => $this->merchant_org_id,
+            'parent_org_id' => $this->merchant_org_id,
+            'testmode' => $this->testmode ? 'yes' : 'no',
+            'base_url' => $this->testmode ? 'https://devapi.monarch.is/v1' : 'https://api.monarch.is/v1'
+        ));
+
         try {
             $monarch_api = new Monarch_API(
                 $this->api_key,
@@ -720,7 +731,12 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         $logger = WC_Monarch_Logger::instance();
         $logger->debug('ajax_get_latest_paytoken called', array(
             'post_data' => $_POST,
-            'is_user_logged_in' => is_user_logged_in()
+            'is_user_logged_in' => is_user_logged_in(),
+            'api_key_last_4' => substr($this->api_key, -4),
+            'app_id_last_4' => substr($this->app_id, -4),
+            'merchant_org_id' => $this->merchant_org_id,
+            'testmode' => $this->testmode ? 'yes' : 'no',
+            'base_url' => $this->testmode ? 'https://devapi.monarch.is/v1' : 'https://api.monarch.is/v1'
         ));
 
         // Verify nonce

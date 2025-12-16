@@ -58,14 +58,14 @@ $test_customer_data = array(
     'last_name' => 'Customer',
     'email' => 'test' . time() . '@example.com',
     'password' => 'TestPassword123!',
-    'phone' => '1234567890',
+    'phone' => '2025551234',  // 10-digit US phone number
     'company_name' => 'Test Company',
-    'dob' => '1990-01-01',
+    'dob' => '01/01/1990',  // mm/dd/yyyy format required by API
     'address_1' => '123 Test St',
     'address_2' => '',
     'city' => 'Test City',
     'state' => 'CA',
-    'zip' => '12345',
+    'zip' => '90210',
     'country' => 'US'
 );
 

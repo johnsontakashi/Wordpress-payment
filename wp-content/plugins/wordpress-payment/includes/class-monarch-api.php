@@ -25,7 +25,7 @@ class Monarch_API {
      */
     public function create_organization($customer_data) {
         $url = $this->base_url . '/organization';
-        
+
         $data = array(
             'first_name' => $customer_data['first_name'],
             'last_name' => $customer_data['last_name'],
@@ -36,7 +36,7 @@ class Monarch_API {
             'originationClient' => 'partner_app',
             'partnerName' => $this->partner_name,
             'authType' => '',
-            'parentOrgId' => '',
+            'parentOrgId' => $this->merchant_org_id, // Set merchant as parent
             'user_metadata' => array(
                 'phone' => $customer_data['phone'],
                 'companyName' => $customer_data['company_name'],
@@ -49,7 +49,7 @@ class Monarch_API {
                 'country' => $customer_data['country']
             )
         );
-        
+
         return $this->make_request('POST', $url, $data);
     }
     
