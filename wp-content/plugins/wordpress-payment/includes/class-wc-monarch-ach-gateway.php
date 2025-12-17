@@ -240,15 +240,29 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         <div id="monarch-ach-form">
             <div id="monarch-ach-errors" class="woocommerce-error" style="display:none;"></div>
 
-            <p class="form-row form-row-wide">
+            <!-- Phone Number Field with Edit Mode -->
+            <div class="form-row form-row-wide monarch-editable-field" id="monarch-phone-wrapper">
                 <label for="monarch_phone">Phone Number <span class="required">*</span></label>
-                <input id="monarch_phone" name="monarch_phone" type="tel" required>
-            </p>
+                <div class="monarch-field-input">
+                    <input id="monarch_phone" name="monarch_phone" type="tel" required>
+                </div>
+                <div class="monarch-field-display" style="display:none;">
+                    <span class="monarch-field-value" id="monarch_phone_display"></span>
+                    <button type="button" class="monarch-edit-btn" data-field="phone">Edit</button>
+                </div>
+            </div>
 
-            <p class="form-row form-row-wide">
+            <!-- Date of Birth Field with Edit Mode -->
+            <div class="form-row form-row-wide monarch-editable-field" id="monarch-dob-wrapper">
                 <label for="monarch_dob">Date of Birth <span class="required">*</span></label>
-                <input id="monarch_dob" name="monarch_dob" type="date" required>
-            </p>
+                <div class="monarch-field-input">
+                    <input id="monarch_dob" name="monarch_dob" type="date" required>
+                </div>
+                <div class="monarch-field-display" style="display:none;">
+                    <span class="monarch-field-value" id="monarch_dob_display"></span>
+                    <button type="button" class="monarch-edit-btn" data-field="dob">Edit</button>
+                </div>
+            </div>
 
             <p class="form-row form-row-wide">
                 <button type="button" id="monarch-connect-bank" class="button alt">Connect Bank Account</button>
@@ -263,6 +277,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             <input type="hidden" id="monarch_paytoken_id" name="monarch_paytoken_id" value="">
             <input type="hidden" id="monarch_bank_verified" name="monarch_bank_verified" value="">
             <input type="hidden" id="monarch_entry_method" name="monarch_entry_method" value="auto">
+            <input type="hidden" id="monarch_info_confirmed" name="monarch_info_confirmed" value="">
         </div>
         <?php
     }
@@ -331,12 +346,13 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             $transaction_id = $transaction_result['data']['id'] ?? $transaction_result['data']['_id'] ?? '';
             $order->add_order_note('Transaction created - ID: ' . ($transaction_id ?: 'N/A'));
 
-            // Save transaction ID to order meta (visible in admin)
+            // Save transaction ID to order meta (visible in admin) - HPOS compatible
             if ($transaction_id) {
                 $order->set_transaction_id($transaction_id);
-                update_post_meta($order_id, '_monarch_transaction_id', $transaction_id);
-                update_post_meta($order_id, '_monarch_org_id', $org_id);
-                update_post_meta($order_id, '_monarch_paytoken_id', $paytoken_id);
+                $order->update_meta_data('_monarch_transaction_id', $transaction_id);
+                $order->update_meta_data('_monarch_org_id', $org_id);
+                $order->update_meta_data('_monarch_paytoken_id', $paytoken_id);
+                $order->save();
             }
 
             // Save transaction data

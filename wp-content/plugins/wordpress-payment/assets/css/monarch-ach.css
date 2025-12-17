@@ -11,6 +11,60 @@
     margin-bottom: 15px;
 }
 
+/* Editable Fields with Edit Button */
+.monarch-editable-field {
+    margin-bottom: 15px;
+}
+
+.monarch-editable-field label {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.monarch-field-display {
+    display: flex;
+    align-items: center;
+    background: #fff;
+    border: 2px solid #28a745;
+    border-radius: 4px;
+    padding: 10px 12px;
+}
+
+.monarch-field-value {
+    flex: 1;
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+}
+
+.monarch-edit-btn {
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 5px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #007cba;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.monarch-edit-btn:hover {
+    background: #007cba;
+    color: white;
+    border-color: #007cba;
+}
+
+.monarch-editable-field.confirmed .monarch-field-input {
+    display: none;
+}
+
+.monarch-editable-field.confirmed .monarch-field-display {
+    display: flex;
+}
+
 #monarch-ach-form label {
     font-weight: 600;
     color: #333;

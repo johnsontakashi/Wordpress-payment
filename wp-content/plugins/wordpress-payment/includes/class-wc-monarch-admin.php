@@ -5,13 +5,159 @@ if (!defined('ABSPATH')) {
 }
 
 class WC_Monarch_Admin {
-    
+
     public function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         add_action('wp_ajax_monarch_test_connection', array($this, 'test_api_connection'));
         add_action('admin_notices', array($this, 'admin_notices'));
+
+        // Add meta box to order page
+        add_action('add_meta_boxes', array($this, 'add_order_meta_box'));
+
+        // For HPOS (High-Performance Order Storage) compatibility
+        add_action('woocommerce_admin_order_data_after_billing_address', array($this, 'display_monarch_data_in_order'), 10, 1);
+    }
+
+    /**
+     * Add meta box to order edit page
+     */
+    public function add_order_meta_box() {
+        $screen = class_exists('\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController')
+            && wc_get_container()->get(\Automattic\WooCommerce\Internal\DataStores\Orders\CustomOrdersTableController::class)->custom_orders_table_usage_is_enabled()
+            ? wc_get_page_screen_id('shop-order')
+            : 'shop_order';
+
+        add_meta_box(
+            'monarch_ach_transaction_details',
+            'Monarch ACH Payment Details',
+            array($this, 'render_order_meta_box'),
+            $screen,
+            'side',
+            'high'
+        );
+    }
+
+    /**
+     * Render meta box content
+     */
+    public function render_order_meta_box($post_or_order) {
+        // Handle both HPOS and legacy order storage
+        if ($post_or_order instanceof WC_Order) {
+            $order = $post_or_order;
+        } else {
+            $order = wc_get_order($post_or_order->ID);
+        }
+
+        if (!$order) {
+            echo '<p>Order not found.</p>';
+            return;
+        }
+
+        $order_id = $order->get_id();
+
+        // Get transaction data (HPOS compatible)
+        $transaction_id = $order->get_transaction_id();
+        $monarch_transaction_id = $order->get_meta('_monarch_transaction_id', true);
+        $monarch_org_id = $order->get_meta('_monarch_org_id', true);
+        $monarch_paytoken_id = $order->get_meta('_monarch_paytoken_id', true);
+
+        // Check if this is a Monarch payment
+        if ($order->get_payment_method() !== 'monarch_ach') {
+            echo '<p>This order was not paid via Monarch ACH.</p>';
+            return;
+        }
+
+        ?>
+        <div class="monarch-order-details">
+            <p><strong>Transaction ID:</strong><br>
+                <code style="word-break: break-all;"><?php echo esc_html($transaction_id ?: $monarch_transaction_id ?: 'N/A'); ?></code>
+            </p>
+
+            <?php if ($monarch_org_id): ?>
+            <p><strong>Organization ID:</strong><br>
+                <code><?php echo esc_html($monarch_org_id); ?></code>
+            </p>
+            <?php endif; ?>
+
+            <?php
+            // Get transaction from database
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'monarch_ach_transactions';
+            $db_transaction = $wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM $table_name WHERE order_id = %d LIMIT 1",
+                $order_id
+            ));
+
+            if ($db_transaction): ?>
+            <p><strong>Status:</strong><br>
+                <span class="status-badge status-<?php echo esc_attr($db_transaction->status); ?>">
+                    <?php echo esc_html(ucfirst($db_transaction->status)); ?>
+                </span>
+            </p>
+            <p><strong>Amount:</strong><br>
+                <?php echo wc_price($db_transaction->amount); ?>
+            </p>
+            <p><strong>Date:</strong><br>
+                <?php echo esc_html(date('M j, Y g:i A', strtotime($db_transaction->created_at))); ?>
+            </p>
+            <?php endif; ?>
+        </div>
+
+        <style>
+            .monarch-order-details p {
+                margin-bottom: 10px;
+            }
+            .monarch-order-details code {
+                display: block;
+                background: #f0f0f1;
+                padding: 5px 8px;
+                margin-top: 3px;
+                font-size: 11px;
+            }
+            .monarch-order-details .status-badge {
+                display: inline-block;
+                padding: 3px 8px;
+                border-radius: 3px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            .monarch-order-details .status-pending,
+            .monarch-order-details .status-processing {
+                background: #f0f6fc;
+                color: #0366d6;
+            }
+            .monarch-order-details .status-completed,
+            .monarch-order-details .status-success {
+                background: #dcffe4;
+                color: #22863a;
+            }
+            .monarch-order-details .status-failed {
+                background: #ffeef0;
+                color: #cb2431;
+            }
+        </style>
+        <?php
+    }
+
+    /**
+     * Display Monarch data in order details (HPOS compatible)
+     */
+    public function display_monarch_data_in_order($order) {
+        if ($order->get_payment_method() !== 'monarch_ach') {
+            return;
+        }
+
+        $transaction_id = $order->get_transaction_id();
+        $monarch_transaction_id = $order->get_meta('_monarch_transaction_id', true);
+
+        if ($transaction_id || $monarch_transaction_id) {
+            echo '<p class="form-field form-field-wide">';
+            echo '<strong>Monarch Transaction ID:</strong><br>';
+            echo '<code>' . esc_html($transaction_id ?: $monarch_transaction_id) . '</code>';
+            echo '</p>';
+        }
     }
     
     public function add_admin_menu() {
@@ -245,14 +391,14 @@ class WC_Monarch_Admin {
                             <th>Customer</th>
                             <th>Email</th>
                             <th>Monarch Org ID</th>
-                            <th>PayToken ID</th>
+                            <th>Bank Status</th>
                             <th>Registration Date</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($users as $user): ?>
-                            <?php 
+                            <?php
                             $org_id = get_user_meta($user->ID, '_monarch_org_id', true);
                             $paytoken_id = get_user_meta($user->ID, '_monarch_paytoken_id', true);
                             ?>
@@ -260,7 +406,13 @@ class WC_Monarch_Admin {
                                 <td><?php echo esc_html($user->display_name); ?></td>
                                 <td><?php echo esc_html($user->user_email); ?></td>
                                 <td><?php echo esc_html($org_id); ?></td>
-                                <td><?php echo esc_html($paytoken_id ?: 'Not connected'); ?></td>
+                                <td>
+                                    <?php if ($paytoken_id): ?>
+                                        <span class="status-badge status-completed">Connected</span>
+                                    <?php else: ?>
+                                        <span class="status-badge status-pending">Not connected</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo date('M j, Y', strtotime($user->user_registered)); ?></td>
                                 <td>
                                     <a href="<?php echo get_edit_user_link($user->ID); ?>" class="button button-small">

@@ -205,7 +205,43 @@ class Monarch_API {
                 'data' => $decoded_body
             );
         } else {
-            $error = $decoded_body['error']['message'] ?? $decoded_body['message'] ?? 'API request failed';
+            // Provide user-friendly error messages for common HTTP errors
+            $error = $decoded_body['error']['message'] ?? $decoded_body['message'] ?? null;
+
+            if (!$error) {
+                switch ($status_code) {
+                    case 400:
+                        $error = 'Invalid request. Please check your information and try again.';
+                        break;
+                    case 401:
+                        $error = 'Authentication failed. Please contact support.';
+                        break;
+                    case 403:
+                        $error = 'Access denied. Please contact support.';
+                        break;
+                    case 404:
+                        $error = 'Resource not found.';
+                        break;
+                    case 429:
+                        $error = 'Too many requests. Please wait a moment and try again.';
+                        break;
+                    case 500:
+                        $error = 'Server error. Please try again in a few minutes.';
+                        break;
+                    case 502:
+                        $error = 'Gateway error. The payment service is temporarily unavailable. Please try again in a few minutes.';
+                        break;
+                    case 503:
+                        $error = 'Service temporarily unavailable. The Monarch payment server is currently down for maintenance. Please try again in a few minutes.';
+                        break;
+                    case 504:
+                        $error = 'Gateway timeout. The payment service is taking too long to respond. Please try again.';
+                        break;
+                    default:
+                        $error = 'API request failed (Error ' . $status_code . '). Please try again.';
+                }
+            }
+
             $logger->log_api_error($url, $error, $status_code);
             return array(
                 'success' => false,

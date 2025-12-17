@@ -12,6 +12,75 @@ jQuery(document).ready(function($) {
         this.value = value;
     });
 
+    // Lock field and show display mode with Edit button
+    function lockField(fieldType) {
+        const wrapper = $('#monarch-' + fieldType + '-wrapper');
+        const input = wrapper.find('input');
+        const inputContainer = wrapper.find('.monarch-field-input');
+        const displayContainer = wrapper.find('.monarch-field-display');
+        const displayValue = wrapper.find('.monarch-field-value');
+
+        let displayText = input.val();
+
+        // Format the display text
+        if (fieldType === 'dob' && displayText) {
+            // Format date as MM/DD/YYYY
+            const date = new Date(displayText);
+            displayText = (date.getMonth() + 1).toString().padStart(2, '0') + '/' +
+                          date.getDate().toString().padStart(2, '0') + '/' +
+                          date.getFullYear();
+        }
+
+        displayValue.text(displayText);
+        inputContainer.hide();
+        displayContainer.show();
+        wrapper.addClass('confirmed');
+    }
+
+    // Unlock field for editing
+    function unlockField(fieldType) {
+        const wrapper = $('#monarch-' + fieldType + '-wrapper');
+        const inputContainer = wrapper.find('.monarch-field-input');
+        const displayContainer = wrapper.find('.monarch-field-display');
+
+        displayContainer.hide();
+        inputContainer.show();
+        wrapper.removeClass('confirmed');
+        wrapper.find('input').focus();
+    }
+
+    // Handle Edit button click
+    $(document).on('click', '.monarch-edit-btn', function(e) {
+        e.preventDefault();
+        const fieldType = $(this).data('field');
+        unlockField(fieldType);
+    });
+
+    // Lock fields when user leaves the field (blur) if valid
+    $(document).on('blur', '#monarch_phone', function() {
+        const phone = $(this).val().replace(/[^0-9]/g, '');
+        if (phone.length >= 10) {
+            lockField('phone');
+        }
+    });
+
+    $(document).on('blur', '#monarch_dob', function() {
+        const dob = $(this).val();
+        if (dob) {
+            // Validate age (must be 18+)
+            const dobDate = new Date(dob);
+            const today = new Date();
+            let age = today.getFullYear() - dobDate.getFullYear();
+            const monthDiff = today.getMonth() - dobDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+                age--;
+            }
+            if (age >= 18) {
+                lockField('dob');
+            }
+        }
+    });
+
     // Routing number formatting (numbers only, max 9 digits) - both main form and modal
     $(document).on('input', '#monarch_routing_number, #modal_routing_number', function() {
         this.value = this.value.replace(/[^0-9]/g, '').substring(0, 9);
