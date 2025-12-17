@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: WooCommerce Monarch ACH Payment Gateway
- * Description: Custom WooCommerce payment gateway for ACH transactions via Monarch API
+ * Plugin Name: Monarch WooCommerce Payment Gateway
+ * Description: Monarch Payment Gateway.
  * Version: 1.1.0
- * Author: Your Company
+ * Author: Monarch Technologies Inc.
  * License: GPL v2 or later
  * Requires at least: 5.0
  * Tested up to: 6.4
