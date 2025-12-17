@@ -82,11 +82,14 @@ class WC_Monarch_Cron {
 
         if (empty($pending_transactions)) {
             $logger->info('CRON: No pending transactions to update');
-            return array(
+            $result = array(
                 'processed' => 0,
                 'updated' => 0,
                 'errors' => 0
             );
+            // Save last run info even when no transactions to process
+            $this->save_last_run_info($result);
+            return $result;
         }
 
         $logger->info('CRON: Found ' . count($pending_transactions) . ' pending transactions to check');

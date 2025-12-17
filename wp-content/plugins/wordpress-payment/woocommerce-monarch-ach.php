@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Monarch WooCommerce Payment Gateway
  * Description: Monarch Payment Gateway.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Monarch Technologies Inc.
  * License: GPL v2 or later
  * Requires at least: 5.0
@@ -20,7 +20,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('WC_MONARCH_ACH_VERSION', '1.0.0');
+define('WC_MONARCH_ACH_VERSION', '1.0.1');
 define('WC_MONARCH_ACH_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('WC_MONARCH_ACH_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -37,6 +37,20 @@ class WC_Monarch_ACH_Gateway_Plugin {
 
         // Register AJAX handlers early (before gateway is instantiated)
         add_action('init', array($this, 'register_ajax_handlers'));
+
+        // Ensure rewrite rules are flushed if needed (on admin)
+        add_action('admin_init', array($this, 'maybe_flush_rewrite_rules'));
+    }
+
+    /**
+     * Check if rewrite rules need to be flushed
+     */
+    public function maybe_flush_rewrite_rules() {
+        if (get_option('monarch_ach_rewrite_rules_version') !== WC_MONARCH_ACH_VERSION) {
+            $this->register_callback_endpoint();
+            flush_rewrite_rules();
+            update_option('monarch_ach_rewrite_rules_version', WC_MONARCH_ACH_VERSION);
+        }
     }
 
     public function init() {
@@ -52,6 +66,147 @@ class WC_Monarch_ACH_Gateway_Plugin {
 
         // Register WooCommerce Blocks support
         add_action('woocommerce_blocks_loaded', array($this, 'register_blocks_support'));
+
+        // Register customer-facing transaction display hook (must be here, not in gateway constructor)
+        add_action('woocommerce_order_details_after_order_table', array($this, 'display_transaction_details_for_customer'), 10, 1);
+    }
+
+    /**
+     * Display transaction details to customers on order view page (My Account → Orders → View)
+     * This is registered in plugin init() to ensure it always runs, not just when gateway is instantiated
+     */
+    public function display_transaction_details_for_customer($order) {
+        // Only show for Monarch ACH payments
+        if ($order->get_payment_method() !== 'monarch_ach') {
+            return;
+        }
+
+        // Get transaction data from database
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'monarch_ach_transactions';
+        $transaction = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE order_id = %d LIMIT 1",
+            $order->get_id()
+        ));
+
+        // If no transaction in custom table, try to get from order meta
+        if (!$transaction) {
+            $transaction_id = $order->get_transaction_id();
+            $monarch_transaction_id = $order->get_meta('_monarch_transaction_id');
+
+            if ($transaction_id || $monarch_transaction_id) {
+                // Create a pseudo-transaction object from order meta
+                $transaction = (object) array(
+                    'transaction_id' => $transaction_id ?: $monarch_transaction_id,
+                    'status' => $this->map_order_status_to_transaction_status($order->get_status()),
+                    'amount' => $order->get_total(),
+                    'created_at' => $order->get_date_created() ? $order->get_date_created()->format('Y-m-d H:i:s') : ''
+                );
+            }
+        }
+
+        if (!$transaction) {
+            return;
+        }
+
+        // Map status to user-friendly text
+        $status_labels = array(
+            'pending' => 'Processing',
+            'processing' => 'Processing',
+            'submitted' => 'Submitted',
+            'completed' => 'Completed',
+            'success' => 'Completed',
+            'settled' => 'Completed',
+            'approved' => 'Approved',
+            'failed' => 'Failed',
+            'declined' => 'Declined',
+            'rejected' => 'Rejected',
+            'returned' => 'Returned',
+            'refunded' => 'Refunded',
+            'voided' => 'Cancelled',
+            'cancelled' => 'Cancelled'
+        );
+
+        $status_text = $status_labels[strtolower($transaction->status)] ?? ucfirst($transaction->status);
+
+        // Status colors
+        $status_colors = array(
+            'pending' => '#0366d6',
+            'processing' => '#0366d6',
+            'submitted' => '#0366d6',
+            'completed' => '#22863a',
+            'success' => '#22863a',
+            'settled' => '#22863a',
+            'approved' => '#22863a',
+            'failed' => '#cb2431',
+            'declined' => '#cb2431',
+            'rejected' => '#cb2431',
+            'returned' => '#cb2431',
+            'refunded' => '#6f42c1',
+            'voided' => '#6a737d',
+            'cancelled' => '#6a737d'
+        );
+
+        $status_color = $status_colors[strtolower($transaction->status)] ?? '#6a737d';
+
+        ?>
+        <section class="woocommerce-monarch-transaction-details">
+            <h2>ACH Payment Details</h2>
+            <table class="woocommerce-table shop_table monarch-transaction-table">
+                <tbody>
+                    <tr>
+                        <th>Payment Method</th>
+                        <td>ACH Bank Transfer</td>
+                    </tr>
+                    <tr>
+                        <th>Transaction ID</th>
+                        <td><code style="font-size: 12px;"><?php echo esc_html($transaction->transaction_id); ?></code></td>
+                    </tr>
+                    <tr>
+                        <th>Payment Status</th>
+                        <td>
+                            <span style="background: <?php echo esc_attr($status_color); ?>15; color: <?php echo esc_attr($status_color); ?>; padding: 4px 10px; border-radius: 4px; font-weight: 500; font-size: 13px;">
+                                <?php echo esc_html($status_text); ?>
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Amount</th>
+                        <td><?php echo wc_price($transaction->amount); ?></td>
+                    </tr>
+                    <?php if (!empty($transaction->created_at)): ?>
+                    <tr>
+                        <th>Date</th>
+                        <td><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($transaction->created_at))); ?></td>
+                    </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+
+            <?php if (in_array(strtolower($transaction->status), array('pending', 'processing', 'submitted'))): ?>
+            <p class="monarch-processing-notice" style="margin-top: 15px; padding: 12px; background: #f0f6fc; border-left: 4px solid #0366d6; font-size: 14px;">
+                <strong>Note:</strong> ACH bank transfers typically take 2-5 business days to complete.
+                You will receive an email notification once your payment has been processed.
+            </p>
+            <?php endif; ?>
+        </section>
+        <?php
+    }
+
+    /**
+     * Map WooCommerce order status to transaction status
+     */
+    private function map_order_status_to_transaction_status($order_status) {
+        $status_map = array(
+            'pending' => 'pending',
+            'processing' => 'processing',
+            'on-hold' => 'pending',
+            'completed' => 'completed',
+            'cancelled' => 'cancelled',
+            'refunded' => 'refunded',
+            'failed' => 'failed'
+        );
+        return $status_map[$order_status] ?? 'pending';
     }
 
     /**
@@ -91,11 +246,28 @@ class WC_Monarch_ACH_Gateway_Plugin {
         add_action('wp_ajax_monarch_manual_status_update', array($this, 'ajax_manual_status_update'));
 
         // Handle bank callback redirect (prevents 404 error from Yodlee redirect)
-        add_action('template_redirect', array($this, 'handle_bank_callback'));
+        // Use multiple hooks at different stages to ensure we catch the redirect
+        // Priority 1 ensures we run before anything else
+        add_action('init', array($this, 'handle_bank_callback_init'), 1);
+        add_action('send_headers', array($this, 'handle_bank_callback_early'), 1);
+        add_action('wp', array($this, 'handle_bank_callback'), 1);
+        add_action('template_redirect', array($this, 'handle_bank_callback'), 1);
 
         // Register a dedicated callback endpoint
-        add_action('init', array($this, 'register_callback_endpoint'));
+        add_action('init', array($this, 'register_callback_endpoint'), 10);
         add_action('parse_request', array($this, 'handle_callback_endpoint'));
+    }
+
+    /**
+     * Very early handler for bank callback - runs at init stage (priority 1)
+     * This is before WordPress even determines the query
+     */
+    public function handle_bank_callback_init() {
+        // Check immediately on init for callback parameters
+        if (isset($_GET['monarch_bank_callback']) && $_GET['monarch_bank_callback'] === '1') {
+            $org_id = isset($_GET['org_id']) ? sanitize_text_field($_GET['org_id']) : '';
+            $this->output_ok_page($org_id);
+        }
     }
 
     /**
@@ -186,6 +358,14 @@ class WC_Monarch_ACH_Gateway_Plugin {
         </html>
         <?php
         exit;
+    }
+
+    /**
+     * Early handler for bank callback - runs at send_headers stage
+     * This is the earliest point we can catch the request before 404 is sent
+     */
+    public function handle_bank_callback_early() {
+        $this->handle_bank_callback();
     }
 
     /**
@@ -360,11 +540,11 @@ class WC_Monarch_ACH_Gateway_Plugin {
     
     public function activate() {
         global $wpdb;
-        
+
         $table_name = $wpdb->prefix . 'monarch_ach_transactions';
-        
+
         $charset_collate = $wpdb->get_charset_collate();
-        
+
         $sql = "CREATE TABLE $table_name (
             id mediumint(9) NOT NULL AUTO_INCREMENT,
             order_id bigint(20) NOT NULL,
@@ -381,7 +561,7 @@ class WC_Monarch_ACH_Gateway_Plugin {
             UNIQUE KEY transaction_id (transaction_id),
             KEY order_id (order_id)
         ) $charset_collate;";
-        
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
 
@@ -389,6 +569,10 @@ class WC_Monarch_ACH_Gateway_Plugin {
         if (!wp_next_scheduled('monarch_ach_update_transaction_status')) {
             wp_schedule_event(time(), 'every_two_hours', 'monarch_ach_update_transaction_status');
         }
+
+        // Register rewrite rules and flush them
+        $this->register_callback_endpoint();
+        flush_rewrite_rules();
     }
 
     /**
