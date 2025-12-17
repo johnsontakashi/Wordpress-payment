@@ -328,13 +328,22 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 throw new Exception('Transaction failed: ' . $transaction_result['error']);
             }
 
-            $order->add_order_note('Transaction created - ID: ' . ($transaction_result['data']['id'] ?? 'N/A'));
+            $transaction_id = $transaction_result['data']['id'] ?? $transaction_result['data']['_id'] ?? '';
+            $order->add_order_note('Transaction created - ID: ' . ($transaction_id ?: 'N/A'));
+
+            // Save transaction ID to order meta (visible in admin)
+            if ($transaction_id) {
+                $order->set_transaction_id($transaction_id);
+                update_post_meta($order_id, '_monarch_transaction_id', $transaction_id);
+                update_post_meta($order_id, '_monarch_org_id', $org_id);
+                update_post_meta($order_id, '_monarch_paytoken_id', $paytoken_id);
+            }
 
             // Save transaction data
             $this->save_transaction_data($order_id, $transaction_result['data'], $org_id, $paytoken_id);
 
-            $order->payment_complete();
-            $order->add_order_note('ACH payment processed. Transaction ID: ' . ($transaction_result['data']['id'] ?? 'N/A'));
+            $order->payment_complete($transaction_id);
+            $order->add_order_note('ACH payment processed. Transaction ID: ' . ($transaction_id ?: 'N/A'));
 
             return array(
                 'result' => 'success',

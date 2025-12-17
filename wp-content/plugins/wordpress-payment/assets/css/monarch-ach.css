@@ -173,18 +173,18 @@
 
 .monarch-modal-content {
     position: absolute;
-    top: 50%;
+    top: 2%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    transform: translateX(-50%);
     background: white;
     width: 95%;
-    max-width: 600px;
-    height: 90vh;
-    max-height: 850px;
+    max-width: 500px;
+    height: 96vh;
     border-radius: 12px;
     display: flex;
     flex-direction: column;
     box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    overflow: hidden;
 }
 
 .monarch-modal-header {
@@ -247,6 +247,7 @@
     background: #f8f9fa;
     border-radius: 0 0 12px 12px;
     text-align: center;
+    flex-shrink: 0;
 }
 
 .monarch-modal-footer p {
@@ -418,21 +419,39 @@
 
     .monarch-modal-content {
         width: 98%;
-        height: 95vh;
-        max-height: none;
+        height: 98vh;
+        top: 1%;
         border-radius: 8px;
     }
 
     .monarch-modal-header {
-        padding: 15px;
+        padding: 10px 15px;
     }
 
     .monarch-modal-header h3 {
-        font-size: 16px;
+        font-size: 15px;
+        margin-bottom: 0;
+    }
+
+    .monarch-modal-header p {
+        display: none;
+    }
+
+    .monarch-modal-body iframe {
+        height: 100%;
     }
 
     .monarch-modal-footer {
-        padding: 10px 15px;
+        padding: 12px 15px;
+    }
+
+    .monarch-modal-toggle {
+        flex-shrink: 0;
+    }
+
+    .monarch-modal-method-btn {
+        padding: 10px;
+        font-size: 13px;
     }
 }
 
