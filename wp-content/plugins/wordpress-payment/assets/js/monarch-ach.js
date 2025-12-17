@@ -196,14 +196,23 @@ jQuery(document).ready(function($) {
         const currentUrl = window.location.href;
         let locationUrl = currentUrl.split('?')[0]; // Clean URL without query params
 
+        // Add a callback parameter to help detect successful redirect
+        // This creates a special callback URL that indicates bank linking completed
+        let callbackUrl = locationUrl;
+        if (callbackUrl.indexOf('?') === -1) {
+            callbackUrl += '?monarch_bank_callback=1&org_id=' + orgId;
+        } else {
+            callbackUrl += '&monarch_bank_callback=1&org_id=' + orgId;
+        }
+
         // Clean up URL formatting and replace placeholders properly
         if (url.includes('{redirectUrl}') || url.includes('{price}')) {
             // Replace placeholders with actual values
             url = url.replace(/\{price\}/g, '100'); // Default price or get from order
-            // Only encode the redirect URL once
-            url = url.replace(/\{redirectUrl\}/g, encodeURIComponent(locationUrl));
+            // Use the callback URL with parameters for better redirect detection
+            url = url.replace(/\{redirectUrl\}/g, encodeURIComponent(callbackUrl));
 
-            console.log('Replaced URL placeholders - redirectUrl:', locationUrl, 'price: 100');
+            console.log('Replaced URL placeholders - redirectUrl:', callbackUrl, 'price: 100');
         }
 
         // Add locationURL parameter for Yodlee FastLink postMessage support
@@ -334,12 +343,62 @@ jQuery(document).ready(function($) {
             console.log('Bank linking iframe loaded successfully');
             // Add visual feedback that iframe loaded
             $('#bank-linking-iframe').css('border', '2px solid green');
+
+            // Check if iframe redirected to our site (indicates bank linking complete)
+            // This handles the 404 error case where Yodlee redirects to our checkout URL
+            try {
+                const iframe = document.getElementById('bank-linking-iframe');
+                if (iframe && iframe.contentWindow) {
+                    // Try to access iframe location - will throw error if cross-origin
+                    const iframeSrc = iframe.contentWindow.location.href;
+
+                    // If we can access it and it's our domain, bank linking completed
+                    if (iframeSrc && (iframeSrc.includes(window.location.hostname) || iframeSrc.includes('localhost'))) {
+                        console.log('Iframe redirected to our domain - bank linking likely complete');
+                        // Auto-trigger verification after a brief delay
+                        setTimeout(function() {
+                            if ($('#monarch-bank-connected-btn').length && !$('#monarch-bank-connected-btn').prop('disabled')) {
+                                console.log('Auto-triggering bank verification after redirect');
+                                $('#monarch-bank-connected-btn').text('Redirect Detected! Verifying...');
+                                $('#monarch-bank-connected-btn').click();
+                            }
+                        }, 500);
+                    }
+                }
+            } catch (e) {
+                // Cross-origin error - iframe still on Yodlee domain, which is expected
+                console.log('Iframe is on external domain (expected)');
+            }
         };
 
         window.handleIframeError = function() {
             console.log('Bank linking iframe failed to load');
             showError('Failed to load bank connection. Please try the manual entry option or refresh the page.');
         };
+
+        // Monitor iframe for navigation changes (backup for redirect detection)
+        let iframeLoadCount = 0;
+        const iframeMonitor = setInterval(function() {
+            const iframe = document.getElementById('bank-linking-iframe');
+            if (!iframe) {
+                clearInterval(iframeMonitor);
+                return;
+            }
+
+            // Count load events - multiple loads may indicate navigation
+            iframe.onload = function() {
+                iframeLoadCount++;
+                console.log('Iframe load event #' + iframeLoadCount);
+
+                // If iframe loads multiple times, user may have completed flow
+                if (iframeLoadCount >= 2) {
+                    console.log('Multiple iframe loads detected - may indicate completion');
+                }
+
+                // Call the main load handler
+                window.handleIframeLoad();
+            };
+        }, 1000);
 
         // Add informational message for localhost development
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -506,6 +565,13 @@ jQuery(document).ready(function($) {
             // Exit action
             if (messageData.action === 'exit') {
                 console.log('Exit action received, checking bank status...');
+                triggerBankVerification();
+                return;
+            }
+
+            // Handle our own callback page message (from redirect)
+            if (messageData.type === 'MONARCH_BANK_CALLBACK' && messageData.status === 'SUCCESS') {
+                console.log('Monarch bank callback received - bank linking complete');
                 triggerBankVerification();
                 return;
             }

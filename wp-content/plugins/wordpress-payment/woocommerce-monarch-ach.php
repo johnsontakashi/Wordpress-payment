@@ -89,6 +89,92 @@ class WC_Monarch_ACH_Gateway_Plugin {
         add_action('wp_ajax_nopriv_monarch_manual_bank_entry', array($this, 'ajax_manual_bank_entry'));
         // CRON manual status update handler
         add_action('wp_ajax_monarch_manual_status_update', array($this, 'ajax_manual_status_update'));
+
+        // Handle bank callback redirect (prevents 404 error from Yodlee redirect)
+        add_action('template_redirect', array($this, 'handle_bank_callback'));
+    }
+
+    /**
+     * Handle bank connection callback from Yodlee iframe redirect
+     * This prevents 404 errors when Yodlee redirects back to the checkout page
+     */
+    public function handle_bank_callback() {
+        // Check if this is a bank callback request
+        if (!isset($_GET['monarch_bank_callback']) || $_GET['monarch_bank_callback'] !== '1') {
+            return;
+        }
+
+        // Get organization ID from callback
+        $org_id = isset($_GET['org_id']) ? sanitize_text_field($_GET['org_id']) : '';
+
+        // Output a simple success page that communicates with the parent window
+        ?>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Bank Connection Complete</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: #f5f5f5;
+                }
+                .success-container {
+                    text-align: center;
+                    padding: 40px;
+                    background: white;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                }
+                .success-icon {
+                    font-size: 48px;
+                    color: #28a745;
+                    margin-bottom: 20px;
+                }
+                h2 {
+                    color: #333;
+                    margin-bottom: 10px;
+                }
+                p {
+                    color: #666;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="success-container">
+                <div class="success-icon">✓</div>
+                <h2>Bank Connection Complete!</h2>
+                <p>Your bank account has been linked successfully.</p>
+                <p>This window will close automatically...</p>
+            </div>
+            <script>
+                // Notify parent window that bank connection is complete
+                if (window.parent && window.parent !== window) {
+                    // We're in an iframe - send message to parent
+                    window.parent.postMessage({
+                        type: 'MONARCH_BANK_CALLBACK',
+                        status: 'SUCCESS',
+                        org_id: '<?php echo esc_js($org_id); ?>'
+                    }, '*');
+                }
+
+                // Also try to trigger verification in parent if accessible
+                try {
+                    if (window.parent && window.parent.jQuery) {
+                        window.parent.jQuery('#monarch-bank-connected-btn').click();
+                    }
+                } catch (e) {
+                    console.log('Could not access parent window');
+                }
+            </script>
+        </body>
+        </html>
+        <?php
+        exit;
     }
 
     /**
