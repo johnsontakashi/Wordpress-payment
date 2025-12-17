@@ -30,6 +30,9 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
         add_action('wp_enqueue_scripts', array($this, 'payment_scripts'));
         add_action('woocommerce_thankyou_' . $this->id, array($this, 'thankyou_page'));
+
+        // Show transaction details to customers on order view page (My Account)
+        add_action('woocommerce_order_details_after_order_table', array($this, 'display_transaction_details_for_customer'), 10, 1);
         
         // AJAX hooks
         add_action('wp_ajax_monarch_create_customer', array($this, 'ajax_create_customer'));
@@ -405,7 +408,8 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
             update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-            
+            update_user_meta($customer_id, '_monarch_connected_date', current_time('mysql'));
+
             // Log customer creation
             $logger = WC_Monarch_Logger::instance();
             $logger->log_customer_event('customer_created', $customer_id, array(
@@ -471,6 +475,109 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     
     public function thankyou_page() {
         echo '<p>Thank you for your payment. Your ACH transaction is being processed and you will receive confirmation once complete.</p>';
+    }
+
+    /**
+     * Display transaction details to customers on order view page (My Account → Orders → View)
+     */
+    public function display_transaction_details_for_customer($order) {
+        // Only show for Monarch ACH payments
+        if ($order->get_payment_method() !== 'monarch_ach') {
+            return;
+        }
+
+        // Get transaction data from database
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'monarch_ach_transactions';
+        $transaction = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE order_id = %d LIMIT 1",
+            $order->get_id()
+        ));
+
+        if (!$transaction) {
+            return;
+        }
+
+        // Map status to user-friendly text
+        $status_labels = array(
+            'pending' => 'Processing',
+            'processing' => 'Processing',
+            'submitted' => 'Submitted',
+            'completed' => 'Completed',
+            'success' => 'Completed',
+            'settled' => 'Completed',
+            'approved' => 'Approved',
+            'failed' => 'Failed',
+            'declined' => 'Declined',
+            'rejected' => 'Rejected',
+            'returned' => 'Returned',
+            'refunded' => 'Refunded',
+            'voided' => 'Cancelled',
+            'cancelled' => 'Cancelled'
+        );
+
+        $status_text = $status_labels[strtolower($transaction->status)] ?? ucfirst($transaction->status);
+
+        // Status colors
+        $status_colors = array(
+            'pending' => '#0366d6',
+            'processing' => '#0366d6',
+            'submitted' => '#0366d6',
+            'completed' => '#22863a',
+            'success' => '#22863a',
+            'settled' => '#22863a',
+            'approved' => '#22863a',
+            'failed' => '#cb2431',
+            'declined' => '#cb2431',
+            'rejected' => '#cb2431',
+            'returned' => '#cb2431',
+            'refunded' => '#6f42c1',
+            'voided' => '#6a737d',
+            'cancelled' => '#6a737d'
+        );
+
+        $status_color = $status_colors[strtolower($transaction->status)] ?? '#6a737d';
+
+        ?>
+        <section class="woocommerce-monarch-transaction-details">
+            <h2>ACH Payment Details</h2>
+            <table class="woocommerce-table shop_table monarch-transaction-table">
+                <tbody>
+                    <tr>
+                        <th>Payment Method</th>
+                        <td>ACH Bank Transfer</td>
+                    </tr>
+                    <tr>
+                        <th>Transaction ID</th>
+                        <td><code style="font-size: 12px;"><?php echo esc_html($transaction->transaction_id); ?></code></td>
+                    </tr>
+                    <tr>
+                        <th>Payment Status</th>
+                        <td>
+                            <span style="background: <?php echo esc_attr($status_color); ?>15; color: <?php echo esc_attr($status_color); ?>; padding: 4px 10px; border-radius: 4px; font-weight: 500; font-size: 13px;">
+                                <?php echo esc_html($status_text); ?>
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Amount</th>
+                        <td><?php echo wc_price($transaction->amount); ?></td>
+                    </tr>
+                    <tr>
+                        <th>Date</th>
+                        <td><?php echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), strtotime($transaction->created_at))); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <?php if (in_array(strtolower($transaction->status), array('pending', 'processing', 'submitted'))): ?>
+            <p class="monarch-processing-notice" style="margin-top: 15px; padding: 12px; background: #f0f6fc; border-left: 4px solid #0366d6; font-size: 14px;">
+                <strong>Note:</strong> ACH bank transfers typically take 2-5 business days to complete.
+                You will receive an email notification once your payment has been processed.
+            </p>
+            <?php endif; ?>
+        </section>
+        <?php
     }
     
     /**
@@ -691,6 +798,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
             update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
+            update_user_meta($customer_id, '_monarch_connected_date', current_time('mysql'));
 
             // Copy temp API credentials to permanent
             $temp_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
@@ -1076,6 +1184,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_user_id', $user_id);
             update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
+            update_user_meta($customer_id, '_monarch_connected_date', current_time('mysql'));
 
             // Store the purchaser org's API credentials for transactions
             // The Monarch API requires using the purchaser's own credentials for sale transactions

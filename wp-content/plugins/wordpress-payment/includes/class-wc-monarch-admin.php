@@ -392,7 +392,7 @@ class WC_Monarch_Admin {
                             <th>Email</th>
                             <th>Monarch Org ID</th>
                             <th>Bank Status</th>
-                            <th>Registration Date</th>
+                            <th>Connected Date</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -401,6 +401,7 @@ class WC_Monarch_Admin {
                             <?php
                             $org_id = get_user_meta($user->ID, '_monarch_org_id', true);
                             $paytoken_id = get_user_meta($user->ID, '_monarch_paytoken_id', true);
+                            $connected_date = get_user_meta($user->ID, '_monarch_connected_date', true);
                             ?>
                             <tr>
                                 <td><?php echo esc_html($user->display_name); ?></td>
@@ -413,7 +414,15 @@ class WC_Monarch_Admin {
                                         <span class="status-badge status-pending">Not connected</span>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo date('M j, Y', strtotime($user->user_registered)); ?></td>
+                                <td>
+                                    <?php
+                                    if ($connected_date) {
+                                        echo esc_html(date('M j, Y', strtotime($connected_date)));
+                                    } else {
+                                        echo '<span style="color:#999;">—</span>';
+                                    }
+                                    ?>
+                                </td>
                                 <td>
                                     <a href="<?php echo get_edit_user_link($user->ID); ?>" class="button button-small">
                                         Edit User
@@ -493,26 +502,92 @@ class WC_Monarch_Admin {
     }
     
     private function render_logs_tab() {
-        $log_file = WC_Log_Handler_File::get_log_file_path('monarch-ach');
+        // Try multiple methods to find log files
+        $log_content = '';
+        $log_file_found = false;
+        $log_file_path = '';
+
+        // Method 1: WooCommerce log handler (preferred)
+        if (class_exists('WC_Log_Handler_File') && method_exists('WC_Log_Handler_File', 'get_log_file_path')) {
+            $log_file = WC_Log_Handler_File::get_log_file_path('monarch-ach');
+            if ($log_file && file_exists($log_file)) {
+                $log_content = file_get_contents($log_file);
+                $log_file_found = true;
+                $log_file_path = $log_file;
+            }
+        }
+
+        // Method 2: Check WooCommerce uploads directory directly
+        if (!$log_file_found) {
+            $upload_dir = wp_upload_dir();
+            $wc_logs_dir = $upload_dir['basedir'] . '/wc-logs/';
+
+            if (is_dir($wc_logs_dir)) {
+                // Find any monarch-ach log files
+                $log_files = glob($wc_logs_dir . 'monarch-ach*.log');
+                if (!empty($log_files)) {
+                    // Get the most recent log file
+                    usort($log_files, function($a, $b) {
+                        return filemtime($b) - filemtime($a);
+                    });
+                    $log_file = $log_files[0];
+                    $log_content = file_get_contents($log_file);
+                    $log_file_found = true;
+                    $log_file_path = $log_file;
+                }
+            }
+        }
+
+        // Method 3: Check standard WooCommerce log location
+        if (!$log_file_found) {
+            $wc_log_dir = WP_CONTENT_DIR . '/uploads/wc-logs/';
+            if (is_dir($wc_log_dir)) {
+                $log_files = glob($wc_log_dir . 'monarch-ach*.log');
+                if (!empty($log_files)) {
+                    usort($log_files, function($a, $b) {
+                        return filemtime($b) - filemtime($a);
+                    });
+                    $log_file = $log_files[0];
+                    $log_content = file_get_contents($log_file);
+                    $log_file_found = true;
+                    $log_file_path = $log_file;
+                }
+            }
+        }
 
         ?>
         <div class="monarch-admin-section">
             <h2>API Logs</h2>
 
-            <?php if (file_exists($log_file)): ?>
+            <?php if ($log_file_found && !empty($log_content)): ?>
                 <p>Recent API activity:</p>
-                <div class="monarch-logs">
-                    <pre><?php echo esc_html(file_get_contents($log_file)); ?></pre>
+                <p><small>Log file: <?php echo esc_html(basename($log_file_path)); ?></small></p>
+                <div class="monarch-logs" style="max-height: 500px; overflow-y: auto; background: #f5f5f5; padding: 15px; border-radius: 4px;">
+                    <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word; font-size: 12px;"><?php echo esc_html($log_content); ?></pre>
                 </div>
 
-                <p>
+                <p style="margin-top: 15px;">
                     <a href="<?php echo wp_nonce_url(add_query_arg(array('action' => 'clear_logs')), 'clear_logs'); ?>"
                        class="button" onclick="return confirm('Are you sure you want to clear all logs?');">
                         Clear Logs
                     </a>
                 </p>
             <?php else: ?>
-                <p>No logs found.</p>
+                <div class="notice notice-info" style="padding: 15px;">
+                    <p><strong>No logs found yet.</strong></p>
+                    <p>Logs will appear here after API activity occurs (creating customers, connecting banks, processing payments).</p>
+                    <p><small>Logs are stored in: <code>wp-content/uploads/wc-logs/monarch-ach-*.log</code></small></p>
+                </div>
+
+                <h3 style="margin-top: 20px;">How logging works:</h3>
+                <ul style="list-style: disc; margin-left: 20px;">
+                    <li>API requests and responses are logged automatically</li>
+                    <li>Customer events (organization created, bank connected) are logged</li>
+                    <li>Transaction events are logged</li>
+                    <li>Errors are logged with full details for debugging</li>
+                </ul>
+
+                <p><strong>To generate logs:</strong> Try connecting a bank account or processing a test payment.</p>
             <?php endif; ?>
         </div>
         <?php
@@ -553,8 +628,15 @@ class WC_Monarch_Admin {
                     <th scope="row">Next Scheduled Run</th>
                     <td>
                         <?php if ($next_scheduled): ?>
-                            <?php echo date('M j, Y g:i A', $next_scheduled); ?>
-                            <br><small>(<?php echo human_time_diff($next_scheduled); ?> from now)</small>
+                            <?php
+                            // wp_next_scheduled() returns UTC timestamp
+                            // wp_date() converts to local timezone for display
+                            echo wp_date('M j, Y g:i A', $next_scheduled);
+                            ?>
+                            <br><small>(<?php
+                            // Both time() and $next_scheduled are in UTC, so comparison is correct
+                            echo human_time_diff(time(), $next_scheduled);
+                            ?> from now)</small>
                         <?php else: ?>
                             Not scheduled
                         <?php endif; ?>
@@ -564,7 +646,7 @@ class WC_Monarch_Admin {
                     <th scope="row">Last Run</th>
                     <td>
                         <?php if ($last_run && $last_run['time']): ?>
-                            <?php echo date('M j, Y g:i A', strtotime($last_run['time'])); ?>
+                            <?php echo wp_date('M j, Y g:i A', strtotime($last_run['time'])); ?>
                             <br>
                             <small>
                                 Processed: <?php echo $last_run['processed']; ?> |

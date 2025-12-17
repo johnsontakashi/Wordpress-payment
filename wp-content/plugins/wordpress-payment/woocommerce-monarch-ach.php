@@ -92,27 +92,39 @@ class WC_Monarch_ACH_Gateway_Plugin {
 
         // Handle bank callback redirect (prevents 404 error from Yodlee redirect)
         add_action('template_redirect', array($this, 'handle_bank_callback'));
+
+        // Register a dedicated callback endpoint
+        add_action('init', array($this, 'register_callback_endpoint'));
+        add_action('parse_request', array($this, 'handle_callback_endpoint'));
     }
 
     /**
-     * Handle bank connection callback from Yodlee iframe redirect
-     * This prevents 404 errors when Yodlee redirects back to the checkout page
+     * Register callback endpoint rewrite rule
      */
-    public function handle_bank_callback() {
-        // Check if this is a bank callback request
-        if (!isset($_GET['monarch_bank_callback']) || $_GET['monarch_bank_callback'] !== '1') {
-            return;
+    public function register_callback_endpoint() {
+        add_rewrite_rule('^monarch-bank-callback/?', 'index.php?monarch_bank_ok=1', 'top');
+        add_rewrite_tag('%monarch_bank_ok%', '1');
+    }
+
+    /**
+     * Handle the callback endpoint request
+     */
+    public function handle_callback_endpoint($wp) {
+        if (isset($wp->query_vars['monarch_bank_ok']) ||
+            (isset($_GET['monarch_bank_ok']) && $_GET['monarch_bank_ok'] === '1')) {
+            $this->output_ok_page();
         }
+    }
 
-        // Get organization ID from callback
-        $org_id = isset($_GET['org_id']) ? sanitize_text_field($_GET['org_id']) : '';
-
-        // Output a simple success page that communicates with the parent window
+    /**
+     * Output the OK success page
+     */
+    private function output_ok_page($org_id = '') {
         ?>
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Bank Connection Complete</title>
+            <title>OK</title>
             <style>
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -121,60 +133,115 @@ class WC_Monarch_ACH_Gateway_Plugin {
                     align-items: center;
                     height: 100vh;
                     margin: 0;
-                    background: #f5f5f5;
+                    background: #f0fff4;
                 }
                 .success-container {
                     text-align: center;
-                    padding: 40px;
+                    padding: 60px;
                     background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    border-radius: 12px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
                 }
                 .success-icon {
-                    font-size: 48px;
+                    font-size: 72px;
                     color: #28a745;
                     margin-bottom: 20px;
                 }
-                h2 {
-                    color: #333;
-                    margin-bottom: 10px;
+                h1 {
+                    color: #28a745;
+                    font-size: 48px;
+                    margin: 0 0 10px 0;
                 }
                 p {
                     color: #666;
+                    font-size: 16px;
+                    margin: 5px 0;
                 }
             </style>
         </head>
         <body>
             <div class="success-container">
                 <div class="success-icon">✓</div>
-                <h2>Bank Connection Complete!</h2>
-                <p>Your bank account has been linked successfully.</p>
-                <p>This window will close automatically...</p>
+                <h1>OK</h1>
+                <p>Bank connection complete!</p>
+                <p style="font-size: 14px; color: #999;">You can close this window.</p>
             </div>
             <script>
                 // Notify parent window that bank connection is complete
                 if (window.parent && window.parent !== window) {
-                    // We're in an iframe - send message to parent
                     window.parent.postMessage({
                         type: 'MONARCH_BANK_CALLBACK',
                         status: 'SUCCESS',
                         org_id: '<?php echo esc_js($org_id); ?>'
                     }, '*');
                 }
-
-                // Also try to trigger verification in parent if accessible
+                // Try to trigger verification
                 try {
                     if (window.parent && window.parent.jQuery) {
                         window.parent.jQuery('#monarch-bank-connected-btn').click();
                     }
-                } catch (e) {
-                    console.log('Could not access parent window');
-                }
+                } catch (e) {}
             </script>
         </body>
         </html>
         <?php
         exit;
+    }
+
+    /**
+     * Handle bank connection callback from Yodlee iframe redirect
+     * This prevents 404 errors when Yodlee redirects back to the checkout page
+     */
+    public function handle_bank_callback() {
+        // Check if this is a bank callback request - check multiple possible indicators
+        $is_callback = false;
+        $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+
+        // Method 1: Our explicit callback parameter
+        if (isset($_GET['monarch_bank_callback']) && $_GET['monarch_bank_callback'] === '1') {
+            $is_callback = true;
+        }
+
+        // Method 2: Check for /monarch-callback/ in URL path
+        if (strpos($request_uri, 'monarch-callback') !== false || strpos($request_uri, 'monarch_callback') !== false) {
+            $is_callback = true;
+        }
+
+        // Method 3: Yodlee FastLink callback parameters
+        if (isset($_GET['status']) || isset($_GET['providerAccountId']) || isset($_GET['requestId'])) {
+            $is_callback = true;
+        }
+
+        // Method 4: Yodlee may also use these parameters
+        if (isset($_GET['code']) && isset($_GET['state'])) {
+            $is_callback = true;
+        }
+
+        // Method 5: Check for Yodlee site parameter
+        if (isset($_GET['sites']) || isset($_GET['site'])) {
+            $is_callback = true;
+        }
+
+        // Method 6: Check for fnToCall parameter (Yodlee FastLink)
+        if (isset($_GET['fnToCall']) || isset($_GET['callback'])) {
+            $is_callback = true;
+        }
+
+        // Method 7: Check HTTP Referer - if coming from Yodlee/FastLink domain
+        $referer = $_SERVER['HTTP_REFERER'] ?? '';
+        if (strpos($referer, 'yodlee') !== false || strpos($referer, 'fastlink') !== false) {
+            $is_callback = true;
+        }
+
+        if (!$is_callback) {
+            return;
+        }
+
+        // Get organization ID from callback (if available)
+        $org_id = isset($_GET['org_id']) ? sanitize_text_field($_GET['org_id']) : '';
+
+        // Output the OK page
+        $this->output_ok_page($org_id);
     }
 
     /**

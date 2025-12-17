@@ -196,14 +196,9 @@ jQuery(document).ready(function($) {
         const currentUrl = window.location.href;
         let locationUrl = currentUrl.split('?')[0]; // Clean URL without query params
 
-        // Add a callback parameter to help detect successful redirect
-        // This creates a special callback URL that indicates bank linking completed
-        let callbackUrl = locationUrl;
-        if (callbackUrl.indexOf('?') === -1) {
-            callbackUrl += '?monarch_bank_callback=1&org_id=' + orgId;
-        } else {
-            callbackUrl += '&monarch_bank_callback=1&org_id=' + orgId;
-        }
+        // Build callback URL - use a simple query param that's guaranteed to be detected
+        // The ?monarch_bank_callback=1 parameter will be caught by our PHP handler
+        let callbackUrl = locationUrl + '?monarch_bank_callback=1&org_id=' + orgId;
 
         // Clean up URL formatting and replace placeholders properly
         if (url.includes('{redirectUrl}') || url.includes('{price}')) {
