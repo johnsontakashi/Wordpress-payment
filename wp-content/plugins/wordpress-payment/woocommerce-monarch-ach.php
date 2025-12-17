@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Monarch WooCommerce Payment Gateway
  * Description: Monarch Payment Gateway.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Monarch Technologies Inc.
  * License: GPL v2 or later
  * Requires at least: 5.0
@@ -20,7 +20,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('WC_MONARCH_ACH_VERSION', '1.1.0');
+define('WC_MONARCH_ACH_VERSION', '1.2.0');
 define('WC_MONARCH_ACH_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('WC_MONARCH_ACH_PLUGIN_URL', plugin_dir_url(__FILE__));
 
@@ -49,6 +49,27 @@ class WC_Monarch_ACH_Gateway_Plugin {
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-ach-gateway.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-admin.php';
         include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-cron.php';
+
+        // Register WooCommerce Blocks support
+        add_action('woocommerce_blocks_loaded', array($this, 'register_blocks_support'));
+    }
+
+    /**
+     * Register WooCommerce Blocks payment method support
+     */
+    public function register_blocks_support() {
+        if (!class_exists('Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType')) {
+            return;
+        }
+
+        include_once WC_MONARCH_ACH_PLUGIN_PATH . 'includes/class-wc-monarch-blocks.php';
+
+        add_action(
+            'woocommerce_blocks_payment_method_type_registration',
+            function($payment_method_registry) {
+                $payment_method_registry->register(new WC_Monarch_ACH_Blocks_Support());
+            }
+        );
     }
 
     /**

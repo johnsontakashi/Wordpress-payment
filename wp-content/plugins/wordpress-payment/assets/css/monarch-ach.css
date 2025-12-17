@@ -177,10 +177,10 @@
     left: 50%;
     transform: translate(-50%, -50%);
     background: white;
-    width: 90%;
-    max-width: 900px;
-    height: 85%;
-    max-height: 700px;
+    width: 95%;
+    max-width: 600px;
+    height: 90vh;
+    max-height: 850px;
     border-radius: 12px;
     display: flex;
     flex-direction: column;
@@ -409,17 +409,30 @@
     #monarch-ach-form {
         padding: 15px;
     }
-    
+
     #monarch-ach-form .form-row-first,
     #monarch-ach-form .form-row-last {
         width: 100% !important;
         margin-right: 0 !important;
     }
-    
-    #bank-connection-modal .modal-content {
-        width: 95%;
-        height: 90%;
-        margin: 5% auto;
+
+    .monarch-modal-content {
+        width: 98%;
+        height: 95vh;
+        max-height: none;
+        border-radius: 8px;
+    }
+
+    .monarch-modal-header {
+        padding: 15px;
+    }
+
+    .monarch-modal-header h3 {
+        font-size: 16px;
+    }
+
+    .monarch-modal-footer {
+        padding: 10px 15px;
     }
 }
 
