@@ -11,6 +11,7 @@ class WC_Monarch_Admin {
         add_action('admin_init', array($this, 'admin_init'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         add_action('wp_ajax_monarch_test_connection', array($this, 'test_api_connection'));
+        add_action('wp_ajax_monarch_reassign_paytoken', array($this, 'ajax_reassign_paytoken'));
         add_action('admin_notices', array($this, 'admin_notices'));
 
         // Add meta box to order page
@@ -18,6 +19,80 @@ class WC_Monarch_Admin {
 
         // For HPOS (High-Performance Order Storage) compatibility
         add_action('woocommerce_admin_order_data_after_billing_address', array($this, 'display_monarch_data_in_order'), 10, 1);
+    }
+
+    /**
+     * AJAX handler for re-assigning PayToken to fix "Invalid PayToken" errors
+     */
+    public function ajax_reassign_paytoken() {
+        check_ajax_referer('monarch_admin_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error('Insufficient permissions');
+        }
+
+        $user_id = intval($_POST['user_id']);
+        $org_id = sanitize_text_field($_POST['org_id']);
+        $paytoken_id = sanitize_text_field($_POST['paytoken_id']);
+
+        if (!$user_id || !$org_id || !$paytoken_id) {
+            wp_send_json_error('Missing required data');
+        }
+
+        try {
+            $gateway = new WC_Monarch_ACH_Gateway();
+            $logger = WC_Monarch_Logger::instance();
+
+            // Get user's API credentials if available
+            $org_api_key = get_user_meta($user_id, '_monarch_org_api_key', true);
+            $org_app_id = get_user_meta($user_id, '_monarch_org_app_id', true);
+
+            // Use user's credentials if available, otherwise merchant credentials
+            $api_key_to_use = $org_api_key ?: $gateway->api_key;
+            $app_id_to_use = $org_app_id ?: $gateway->app_id;
+
+            $monarch_api = new Monarch_API(
+                $api_key_to_use,
+                $app_id_to_use,
+                $gateway->merchant_org_id,
+                $gateway->partner_name,
+                $gateway->testmode
+            );
+
+            // Re-assign PayToken to organization
+            $result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
+
+            $logger->info('Admin re-assigned PayToken', array(
+                'user_id' => $user_id,
+                'org_id' => $org_id,
+                'paytoken_id' => $paytoken_id,
+                'success' => $result['success'],
+                'error' => $result['error'] ?? null
+            ));
+
+            if ($result['success']) {
+                // Update connected date to track when fix was applied
+                update_user_meta($user_id, '_monarch_connected_date', current_time('mysql'));
+                wp_send_json_success(array(
+                    'message' => 'PayToken successfully re-assigned to organization'
+                ));
+            } else {
+                // Even if the API returns an error, it might mean "already assigned"
+                // which is fine for our purposes
+                $error_msg = $result['error'] ?? 'Unknown error';
+                if (strpos(strtolower($error_msg), 'already') !== false ||
+                    strpos(strtolower($error_msg), 'assigned') !== false) {
+                    wp_send_json_success(array(
+                        'message' => 'PayToken is already assigned to this organization'
+                    ));
+                } else {
+                    wp_send_json_error('Failed to re-assign PayToken: ' . $error_msg);
+                }
+            }
+
+        } catch (Exception $e) {
+            wp_send_json_error('Error: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -427,6 +502,15 @@ class WC_Monarch_Admin {
                                     <a href="<?php echo get_edit_user_link($user->ID); ?>" class="button button-small">
                                         Edit User
                                     </a>
+                                    <?php if ($org_id && $paytoken_id): ?>
+                                        <button type="button" class="button button-small monarch-reassign-paytoken"
+                                                data-user-id="<?php echo esc_attr($user->ID); ?>"
+                                                data-org-id="<?php echo esc_attr($org_id); ?>"
+                                                data-paytoken-id="<?php echo esc_attr($paytoken_id); ?>"
+                                                title="Re-assign PayToken to fix 'Invalid PayToken' errors">
+                                            Fix PayToken
+                                        </button>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

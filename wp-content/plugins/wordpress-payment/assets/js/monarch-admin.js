@@ -65,4 +65,49 @@ jQuery(document).ready(function($) {
 
     // Manual status update button is handled by inline script in the Status Sync tab
     // to ensure it works regardless of external JS loading issues
+
+    // Fix PayToken button - Re-assign PayToken to fix "Invalid PayToken" errors
+    $(document).on('click', '.monarch-reassign-paytoken', function(e) {
+        e.preventDefault();
+
+        const $button = $(this);
+        const userId = $button.data('user-id');
+        const orgId = $button.data('org-id');
+        const paytokenId = $button.data('paytoken-id');
+
+        if (!confirm('This will re-assign the PayToken to the organization.\n\nThis can fix "paytoken is Invalid" errors.\n\nContinue?')) {
+            return;
+        }
+
+        const originalText = $button.text();
+        $button.prop('disabled', true).text('Fixing...');
+
+        $.ajax({
+            url: monarch_admin_params.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'monarch_reassign_paytoken',
+                nonce: monarch_admin_params.nonce,
+                user_id: userId,
+                org_id: orgId,
+                paytoken_id: paytokenId
+            },
+            success: function(response) {
+                if (response.success) {
+                    $button.text('Fixed!').addClass('button-primary');
+                    alert('Success: ' + response.data.message);
+                    setTimeout(function() {
+                        $button.text(originalText).removeClass('button-primary').prop('disabled', false);
+                    }, 2000);
+                } else {
+                    alert('Error: ' + response.data);
+                    $button.text(originalText).prop('disabled', false);
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Request failed: ' + error);
+                $button.text(originalText).prop('disabled', false);
+            }
+        });
+    });
 });

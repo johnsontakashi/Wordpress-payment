@@ -334,6 +334,24 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 $order->add_order_note('Using purchaser org credentials for transaction');
             }
 
+            // Ensure PayToken is assigned to the organization before transaction
+            // This is a safety check for existing users whose PayToken may not have been assigned
+            $logger = WC_Monarch_Logger::instance();
+            $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
+            if ($assign_result['success']) {
+                $logger->debug('PayToken re-assigned before transaction', array(
+                    'org_id' => $org_id,
+                    'paytoken_id' => $paytoken_id
+                ));
+            } else {
+                // Log but continue - PayToken is likely already assigned
+                $logger->debug('PayToken assignment check before transaction', array(
+                    'org_id' => $org_id,
+                    'paytoken_id' => $paytoken_id,
+                    'result' => $assign_result['error'] ?? 'Already assigned'
+                ));
+            }
+
             // Create Sale Transaction
             $transaction_result = $monarch_api->create_sale_transaction(array(
                 'amount' => $order->get_total(),
@@ -762,9 +780,10 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
      * AJAX handler for bank connection completion
      *
      * For EMBEDDED bank linking flow:
-     * - PayToken is automatically created and assigned by Monarch when user completes bank linking
-     * - We only need to save the paytoken_id retrieved from getLatestPayToken
-     * - NO need to call assign_paytoken() - Monarch handles this automatically
+     * - PayToken is created by Monarch when user completes bank linking via Yodlee
+     * - We retrieve the PayToken via getLatestPayToken
+     * - We then explicitly ASSIGN the PayToken to the organization to ensure it's properly linked
+     * - This assignment step is critical - without it, the PayToken may be "Invalid" during transactions
      */
     public function ajax_bank_connection_complete() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
@@ -785,14 +804,48 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         try {
             $logger = WC_Monarch_Logger::instance();
 
-            // For embedded bank linking, PayToken is already created and assigned by Monarch
-            // We just need to save the data to user meta
-            $logger->debug('Bank connection complete - saving data', array(
+            $logger->debug('Bank connection complete - starting assignment', array(
                 'org_id' => $org_id,
                 'user_id' => $user_id,
                 'paytoken_id' => $paytoken_id,
                 'flow' => 'embedded_bank_linking'
             ));
+
+            // Get purchaser's API credentials
+            $purchaser_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
+            $purchaser_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
+
+            // Use purchaser credentials if available, otherwise fall back to merchant credentials
+            $api_key_to_use = $purchaser_api_key ?: $this->api_key;
+            $app_id_to_use = $purchaser_app_id ?: $this->app_id;
+
+            // Initialize Monarch API
+            $monarch_api = new Monarch_API(
+                $api_key_to_use,
+                $app_id_to_use,
+                $this->merchant_org_id,
+                $this->partner_name,
+                $this->testmode
+            );
+
+            // CRITICAL: Explicitly assign PayToken to the organization
+            // Even though Yodlee creates the PayToken, it may not be properly assigned to the org
+            // This ensures the PayToken is valid for transactions
+            $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
+
+            if (!$assign_result['success']) {
+                // Log the error but continue - the PayToken might already be assigned
+                $logger->warning('PayToken assignment returned error (may already be assigned)', array(
+                    'org_id' => $org_id,
+                    'paytoken_id' => $paytoken_id,
+                    'error' => $assign_result['error'] ?? 'Unknown error'
+                ));
+            } else {
+                $logger->info('PayToken successfully assigned to organization', array(
+                    'org_id' => $org_id,
+                    'paytoken_id' => $paytoken_id
+                ));
+            }
 
             // Save permanent user data
             update_user_meta($customer_id, '_monarch_org_id', $org_id);
@@ -985,6 +1038,24 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 $paytoken_id = $data['_id'] ?? $data['payTokenId'] ?? $data['paytoken_id'] ?? $data['payToken'] ?? null;
 
                 if ($paytoken_id) {
+                    // CRITICAL: Explicitly assign PayToken to the organization
+                    // This ensures the PayToken is valid for transactions
+                    $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
+
+                    if (!$assign_result['success']) {
+                        // Log the warning but continue - PayToken might already be assigned
+                        $logger->warning('PayToken assignment returned error during retrieval (may already be assigned)', array(
+                            'org_id' => $org_id,
+                            'paytoken_id' => $paytoken_id,
+                            'error' => $assign_result['error'] ?? 'Unknown error'
+                        ));
+                    } else {
+                        $logger->info('PayToken assigned to organization during retrieval', array(
+                            'org_id' => $org_id,
+                            'paytoken_id' => $paytoken_id
+                        ));
+                    }
+
                     // Store the paytoken for the current user
                     $customer_id = get_current_user_id();
                     update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
@@ -998,7 +1069,8 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                     // Log success
                     $logger->log_customer_event('paytoken_retrieved', $customer_id, array(
                         'org_id' => $org_id,
-                        'paytoken_id' => $paytoken_id
+                        'paytoken_id' => $paytoken_id,
+                        'assigned' => $assign_result['success'] ?? false
                     ));
 
                     wp_send_json_success(array(
