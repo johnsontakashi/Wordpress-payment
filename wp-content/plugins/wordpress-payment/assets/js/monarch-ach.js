@@ -325,7 +325,9 @@ jQuery(document).ready(function($) {
         });
 
         // Handle "I've Connected My Bank" button
-        $(document).on('click', '#monarch-bank-connected-btn', function() {
+        $(document).on('click', '#monarch-bank-connected-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
             $(this).prop('disabled', true).text('Verifying...');
             checkBankConnectionStatus(orgId);
         });
@@ -350,14 +352,8 @@ jQuery(document).ready(function($) {
                     // If we can access it and it's our domain, bank linking completed
                     if (iframeSrc && (iframeSrc.includes(window.location.hostname) || iframeSrc.includes('localhost'))) {
                         console.log('Iframe redirected to our domain - bank linking likely complete');
-                        // Auto-trigger verification after a brief delay
-                        setTimeout(function() {
-                            if ($('#monarch-bank-connected-btn').length && !$('#monarch-bank-connected-btn').prop('disabled')) {
-                                console.log('Auto-triggering bank verification after redirect');
-                                $('#monarch-bank-connected-btn').text('Redirect Detected! Verifying...');
-                                $('#monarch-bank-connected-btn').click();
-                            }
-                        }, 500);
+                        // Show success message - DON'T auto-click, let user click the button
+                        $('#monarch-bank-connected-btn').text('Bank Linked! Click to Verify').addClass('success-pulse').prop('disabled', false);
                     }
                 }
             } catch (e) {

@@ -371,13 +371,15 @@ class WC_Monarch_ACH_Gateway_Plugin {
     /**
      * Handle bank connection callback from Yodlee iframe redirect
      * This prevents 404 errors when Yodlee redirects back to the checkout page
+     * NOTE: Be careful not to intercept too many URLs - only intercept explicit callbacks
      */
     public function handle_bank_callback() {
-        // Check if this is a bank callback request - check multiple possible indicators
+        // Check if this is a bank callback request - only check EXPLICIT indicators
+        // to avoid intercepting normal page loads
         $is_callback = false;
         $request_uri = $_SERVER['REQUEST_URI'] ?? '';
 
-        // Method 1: Our explicit callback parameter
+        // Method 1: Our explicit callback parameter (most reliable)
         if (isset($_GET['monarch_bank_callback']) && $_GET['monarch_bank_callback'] === '1') {
             $is_callback = true;
         }
@@ -387,31 +389,23 @@ class WC_Monarch_ACH_Gateway_Plugin {
             $is_callback = true;
         }
 
-        // Method 3: Yodlee FastLink callback parameters
-        if (isset($_GET['status']) || isset($_GET['providerAccountId']) || isset($_GET['requestId'])) {
+        // Method 3: Yodlee FastLink callback - only if providerAccountId is present (specific to Yodlee)
+        // Don't just check 'status' as that's too generic
+        if (isset($_GET['providerAccountId'])) {
             $is_callback = true;
         }
 
-        // Method 4: Yodlee may also use these parameters
-        if (isset($_GET['code']) && isset($_GET['state'])) {
+        // Method 4: Yodlee sites array (specific to Yodlee completion)
+        if (isset($_GET['sites'])) {
             $is_callback = true;
         }
 
-        // Method 5: Check for Yodlee site parameter
-        if (isset($_GET['sites']) || isset($_GET['site'])) {
-            $is_callback = true;
-        }
-
-        // Method 6: Check for fnToCall parameter (Yodlee FastLink)
-        if (isset($_GET['fnToCall']) || isset($_GET['callback'])) {
-            $is_callback = true;
-        }
-
-        // Method 7: Check HTTP Referer - if coming from Yodlee/FastLink domain
-        $referer = $_SERVER['HTTP_REFERER'] ?? '';
-        if (strpos($referer, 'yodlee') !== false || strpos($referer, 'fastlink') !== false) {
-            $is_callback = true;
-        }
+        // REMOVED aggressive checks that caused false positives:
+        // - Generic 'status' parameter
+        // - 'code' and 'state' (OAuth - too generic)
+        // - 'site' (too generic)
+        // - 'fnToCall' and 'callback' (too generic)
+        // - HTTP Referer check (caused issues with normal navigation)
 
         if (!$is_callback) {
             return;
