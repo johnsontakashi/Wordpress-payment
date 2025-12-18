@@ -223,22 +223,21 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         if ($this->description) {
             echo '<p>' . wp_kses_post($this->description) . '</p>';
         }
-        
-        // Check if customer is already registered with Monarch
+
+        // IMPORTANT: Always require fresh bank connection for each checkout session
+        // Monarch requires a unique PayToken for each purchaser/transaction
+        // Reusing PayTokens causes "PayToken is Invalid" errors
+
+        // Check if customer has previously connected (for display purposes only)
         $customer_id = get_current_user_id();
-        $monarch_org_id = get_user_meta($customer_id, '_monarch_org_id', true);
-        $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
-        
-        if ($monarch_org_id && $paytoken_id) {
-            echo '<div class="monarch-bank-connected">';
-            echo '<p><strong>✓ Bank account connected</strong></p>';
-            echo '<p><a href="#" id="monarch-disconnect-bank" class="monarch-disconnect-link">Use a different bank account</a></p>';
-            echo '<input type="hidden" name="monarch_org_id" value="' . esc_attr($monarch_org_id) . '">';
-            echo '<input type="hidden" name="monarch_paytoken_id" value="' . esc_attr($paytoken_id) . '">';
-            echo '</div>';
-            return;
+        $has_previous_connection = false;
+        if ($customer_id) {
+            $previous_org_id = get_user_meta($customer_id, '_monarch_org_id', true);
+            $previous_paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
+            $has_previous_connection = !empty($previous_org_id) && !empty($previous_paytoken_id);
         }
-        
+
+        // Always show the bank connection form - each transaction needs fresh credentials
         ?>
         <div id="monarch-ach-form">
             <div id="monarch-ach-errors" class="woocommerce-error" style="display:none;"></div>
@@ -286,12 +285,13 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     }
     
     public function validate_fields() {
-        $customer_id = get_current_user_id();
-        $monarch_org_id = get_user_meta($customer_id, '_monarch_org_id', true);
-        $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
+        // Check for current session's credentials (fresh for each checkout)
+        // These are stored in hidden form fields after bank connection completes
+        $monarch_org_id = isset($_POST['monarch_org_id']) ? sanitize_text_field($_POST['monarch_org_id']) : '';
+        $paytoken_id = isset($_POST['monarch_paytoken_id']) ? sanitize_text_field($_POST['monarch_paytoken_id']) : '';
 
-        // Bank account must be connected through Monarch's verification flow
-        if (!$monarch_org_id || !$paytoken_id) {
+        // Bank account must be connected through Monarch's verification flow for THIS checkout
+        if (empty($monarch_org_id) || empty($paytoken_id)) {
             wc_add_notice('Please connect your bank account before placing an order.', 'error');
             return false;
         }
@@ -304,18 +304,29 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         $customer_id = $order->get_user_id();
 
         try {
-            // Get verified org_id and paytoken_id from user meta
-            $org_id = get_user_meta($customer_id, '_monarch_org_id', true);
-            $paytoken_id = get_user_meta($customer_id, '_monarch_paytoken_id', true);
+            // IMPORTANT: Get org_id and paytoken_id from the CURRENT checkout session
+            // Each transaction requires a fresh organization and PayToken
+            // Do NOT reuse stored user meta - this causes "PayToken is Invalid" errors
+            $org_id = isset($_POST['monarch_org_id']) ? sanitize_text_field($_POST['monarch_org_id']) : '';
+            $paytoken_id = isset($_POST['monarch_paytoken_id']) ? sanitize_text_field($_POST['monarch_paytoken_id']) : '';
 
-            // Bank account must be connected through Monarch's verification flow
-            if (!$org_id || !$paytoken_id) {
+            // Bank account must be connected through Monarch's verification flow for THIS checkout
+            if (empty($org_id) || empty($paytoken_id)) {
                 throw new Exception('Please connect your bank account before placing an order.');
             }
 
-            // Get the purchaser org's API credentials (required for sale transactions)
-            $org_api_key = get_user_meta($customer_id, '_monarch_org_api_key', true);
-            $org_app_id = get_user_meta($customer_id, '_monarch_org_app_id', true);
+            // Get the purchaser org's API credentials from temp storage (set during this checkout session)
+            // These are specific to the current checkout, not stored permanently
+            $org_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
+            $org_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
+
+            // Fall back to permanent storage if temp is not available
+            if (empty($org_api_key)) {
+                $org_api_key = get_user_meta($customer_id, '_monarch_org_api_key', true);
+            }
+            if (empty($org_app_id)) {
+                $org_app_id = get_user_meta($customer_id, '_monarch_org_app_id', true);
+            }
 
             // Use purchaser org's credentials if available, otherwise fall back to merchant credentials
             $api_key_for_sale = $org_api_key ?: $this->api_key;
@@ -329,22 +340,21 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 $this->testmode
             );
 
-            $order->add_order_note('Using verified bank account - orgId: ' . $org_id . ', payTokenId: ' . $paytoken_id);
+            $order->add_order_note('Fresh bank connection for this order - orgId: ' . $org_id . ', payTokenId: ' . $paytoken_id);
             if ($org_api_key) {
                 $order->add_order_note('Using purchaser org credentials for transaction');
             }
 
-            // Ensure PayToken is assigned to the organization before transaction
-            // This is a safety check for existing users whose PayToken may not have been assigned
+            // Verify PayToken is assigned to the organization before transaction
             $logger = WC_Monarch_Logger::instance();
             $assign_result = $monarch_api->assign_paytoken($paytoken_id, $org_id);
             if ($assign_result['success']) {
-                $logger->debug('PayToken re-assigned before transaction', array(
+                $logger->debug('PayToken assignment verified before transaction', array(
                     'org_id' => $org_id,
                     'paytoken_id' => $paytoken_id
                 ));
             } else {
-                // Log but continue - PayToken is likely already assigned
+                // Log but continue - PayToken is likely already assigned during bank connection
                 $logger->debug('PayToken assignment check before transaction', array(
                     'org_id' => $org_id,
                     'paytoken_id' => $paytoken_id,
@@ -381,6 +391,16 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
 
             $order->payment_complete($transaction_id);
             $order->add_order_note('ACH payment processed. Transaction ID: ' . ($transaction_id ?: 'N/A'));
+
+            // Clean up temporary checkout session data after successful order
+            if ($customer_id) {
+                delete_user_meta($customer_id, '_monarch_temp_org_id');
+                delete_user_meta($customer_id, '_monarch_temp_user_id');
+                delete_user_meta($customer_id, '_monarch_temp_org_api_key');
+                delete_user_meta($customer_id, '_monarch_temp_org_app_id');
+                delete_user_meta($customer_id, '_monarch_temp_paytoken_id');
+                delete_user_meta($customer_id, '_monarch_checkout_session_time');
+            }
 
             return array(
                 'result' => 'success',
@@ -600,6 +620,9 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     
     /**
      * AJAX handler for creating organization and getting bank linking URL
+     *
+     * IMPORTANT: Each checkout session creates a NEW organization and PayToken
+     * This prevents "PayToken is Invalid" errors from reusing stale credentials
      */
     public function ajax_create_organization() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
@@ -608,9 +631,20 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
             wp_send_json_error('User must be logged in');
         }
 
+        $customer_id = get_current_user_id();
+
+        // Clean up any stale temp data from previous checkout sessions
+        // This ensures we start fresh for each checkout
+        delete_user_meta($customer_id, '_monarch_temp_org_id');
+        delete_user_meta($customer_id, '_monarch_temp_user_id');
+        delete_user_meta($customer_id, '_monarch_temp_org_api_key');
+        delete_user_meta($customer_id, '_monarch_temp_org_app_id');
+        delete_user_meta($customer_id, '_monarch_temp_paytoken_id');
+        delete_user_meta($customer_id, '_monarch_checkout_session_time');
+
         // Log credentials being used for debugging
         $logger = WC_Monarch_Logger::instance();
-        $logger->debug('ajax_create_organization called', array(
+        $logger->debug('ajax_create_organization called - creating fresh org for this checkout', array(
             'api_key_last_4' => substr($this->api_key, -4),
             'app_id_last_4' => substr($this->app_id, -4),
             'merchant_org_id' => $this->merchant_org_id,
@@ -707,8 +741,7 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 }
             }
             
-            // Save organization data temporarily (will be permanent after bank connection)
-            $customer_id = get_current_user_id();
+            // Save organization data temporarily for this checkout session
             update_user_meta($customer_id, '_monarch_temp_org_id', $org_id);
             update_user_meta($customer_id, '_monarch_temp_user_id', $user_id);
 
@@ -788,11 +821,19 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     public function ajax_bank_connection_complete() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
 
-        if (!is_user_logged_in()) {
-            wp_send_json_error('User must be logged in');
+        // Get customer ID - require login for this payment method
+        $customer_id = get_current_user_id();
+
+        if (!$customer_id) {
+            // Log the error for debugging
+            $logger = WC_Monarch_Logger::instance();
+            $logger->error('Bank connection failed - user not logged in', array(
+                'session_id' => session_id(),
+                'cookies' => isset($_COOKIE) ? array_keys($_COOKIE) : 'none'
+            ));
+            wp_send_json_error('Your session has expired. Please refresh the page and log in again before connecting your bank.');
         }
 
-        $customer_id = get_current_user_id();
         $org_id = get_user_meta($customer_id, '_monarch_temp_org_id', true);
         $user_id = get_user_meta($customer_id, '_monarch_temp_user_id', true);
         $paytoken_id = sanitize_text_field($_POST['paytoken_id']);
@@ -847,25 +888,14 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 ));
             }
 
-            // Save permanent user data
-            update_user_meta($customer_id, '_monarch_org_id', $org_id);
-            update_user_meta($customer_id, '_monarch_user_id', $user_id);
-            update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-            update_user_meta($customer_id, '_monarch_connected_date', current_time('mysql'));
+            // IMPORTANT: Do NOT save permanent user data - each checkout needs fresh credentials
+            // The org_id and paytoken_id will be passed via form fields during checkout
+            // This prevents "PayToken is Invalid" errors from reusing stale credentials
 
-            // Copy temp API credentials to permanent
-            $temp_api_key = get_user_meta($customer_id, '_monarch_temp_org_api_key', true);
-            $temp_app_id = get_user_meta($customer_id, '_monarch_temp_org_app_id', true);
-            if ($temp_api_key && $temp_app_id) {
-                update_user_meta($customer_id, '_monarch_org_api_key', $temp_api_key);
-                update_user_meta($customer_id, '_monarch_org_app_id', $temp_app_id);
-            }
-
-            // Clean up temporary data
-            delete_user_meta($customer_id, '_monarch_temp_org_id');
-            delete_user_meta($customer_id, '_monarch_temp_user_id');
-            delete_user_meta($customer_id, '_monarch_temp_org_api_key');
-            delete_user_meta($customer_id, '_monarch_temp_org_app_id');
+            // Keep credentials in temp storage for this checkout session only
+            // They will be cleaned up after successful order or when user starts a new checkout
+            update_user_meta($customer_id, '_monarch_temp_paytoken_id', $paytoken_id);
+            update_user_meta($customer_id, '_monarch_checkout_session_time', current_time('mysql'));
 
             // Log bank connection
             $logger->log_customer_event('bank_connected', $customer_id, array(
@@ -1056,15 +1086,11 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                         ));
                     }
 
-                    // Store the paytoken for the current user
+                    // IMPORTANT: Do NOT store permanently - each checkout needs fresh credentials
+                    // Store in temp for this checkout session only
                     $customer_id = get_current_user_id();
-                    update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-
-                    // Also store org_id permanently now that bank is linked
-                    $temp_org_id = get_user_meta($customer_id, '_monarch_temp_org_id', true);
-                    if ($temp_org_id) {
-                        update_user_meta($customer_id, '_monarch_org_id', $temp_org_id);
-                    }
+                    update_user_meta($customer_id, '_monarch_temp_paytoken_id', $paytoken_id);
+                    update_user_meta($customer_id, '_monarch_checkout_session_time', current_time('mysql'));
 
                     // Log success
                     $logger->log_customer_event('paytoken_retrieved', $customer_id, array(
@@ -1148,6 +1174,9 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
     /**
      * AJAX handler for manual bank entry
      * Creates organization + paytoken + assigns in one flow
+     *
+     * IMPORTANT: Each checkout session creates a NEW organization and PayToken
+     * This prevents "PayToken is Invalid" errors from reusing stale credentials
      */
     public function ajax_manual_bank_entry() {
         check_ajax_referer('monarch_ach_nonce', 'nonce');
@@ -1155,6 +1184,18 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
         if (!is_user_logged_in()) {
             wp_send_json_error('User must be logged in');
         }
+
+        // Get current user data
+        $current_user = wp_get_current_user();
+        $customer_id = get_current_user_id();
+
+        // Clean up any stale temp data from previous checkout sessions
+        delete_user_meta($customer_id, '_monarch_temp_org_id');
+        delete_user_meta($customer_id, '_monarch_temp_user_id');
+        delete_user_meta($customer_id, '_monarch_temp_org_api_key');
+        delete_user_meta($customer_id, '_monarch_temp_org_app_id');
+        delete_user_meta($customer_id, '_monarch_temp_paytoken_id');
+        delete_user_meta($customer_id, '_monarch_checkout_session_time');
 
         try {
             $monarch_api = new Monarch_API(
@@ -1164,10 +1205,6 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 $this->partner_name,
                 $this->testmode
             );
-
-            // Get current user data
-            $current_user = wp_get_current_user();
-            $customer_id = get_current_user_id();
 
             // Validate required fields
             $bank_name = sanitize_text_field($_POST['bank_name']);
@@ -1252,21 +1289,21 @@ class WC_Monarch_ACH_Gateway extends WC_Payment_Gateway {
                 wp_send_json_error('Failed to link bank account: ' . $assign_result['error']);
             }
 
-            // Save permanent user data
-            update_user_meta($customer_id, '_monarch_org_id', $org_id);
-            update_user_meta($customer_id, '_monarch_user_id', $user_id);
-            update_user_meta($customer_id, '_monarch_paytoken_id', $paytoken_id);
-            update_user_meta($customer_id, '_monarch_connected_date', current_time('mysql'));
+            // IMPORTANT: Store in TEMP storage only - each checkout needs fresh credentials
+            // The org_id and paytoken_id will be passed via form fields during checkout
+            update_user_meta($customer_id, '_monarch_temp_org_id', $org_id);
+            update_user_meta($customer_id, '_monarch_temp_user_id', $user_id);
+            update_user_meta($customer_id, '_monarch_temp_paytoken_id', $paytoken_id);
+            update_user_meta($customer_id, '_monarch_checkout_session_time', current_time('mysql'));
 
-            // Store the purchaser org's API credentials for transactions
-            // The Monarch API requires using the purchaser's own credentials for sale transactions
+            // Store the purchaser org's API credentials in temp storage for this checkout
             $org_api = $org_result['data']['api'] ?? null;
             if ($org_api) {
                 $credentials_key = $this->testmode ? 'sandbox' : 'prod';
                 $org_credentials = $org_api[$credentials_key] ?? null;
                 if ($org_credentials) {
-                    update_user_meta($customer_id, '_monarch_org_api_key', $org_credentials['api_key']);
-                    update_user_meta($customer_id, '_monarch_org_app_id', $org_credentials['app_id']);
+                    update_user_meta($customer_id, '_monarch_temp_org_api_key', $org_credentials['api_key']);
+                    update_user_meta($customer_id, '_monarch_temp_org_app_id', $org_credentials['app_id']);
                 }
             }
 
