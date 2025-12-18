@@ -172,7 +172,7 @@
 }
 
 .monarch-security-notice::before {
-    content: "🔒";
+    content: "";
     margin-right: 8px;
 }
 
@@ -199,6 +199,11 @@
     border-top: 2px solid #007cba;
     border-radius: 50%;
     animation: spin 1s linear infinite;
+}
+
+.modal-dialog {
+    display: flex;
+    justify-content: center;
 }
 
 @keyframes spin {
@@ -287,12 +292,14 @@
 .monarch-modal-body {
     flex: 1;
     overflow: hidden;
+    position: relative;
 }
 
 .monarch-modal-body iframe {
     width: 100%;
     height: 100%;
     border: none;
+    display: block;
 }
 
 .monarch-modal-footer {
@@ -493,6 +500,7 @@
 
     .monarch-modal-body iframe {
         height: 100%;
+        margin: 0 auto;
     }
 
     .monarch-modal-footer {
@@ -594,6 +602,8 @@
 #modal-auto-section .monarch-modal-body {
     flex: 1;
     overflow: hidden;
+    justify-content: center;
+    align-items: center;
 }
 
 /* Manual Entry Form in Modal */
@@ -687,7 +697,7 @@
 }
 
 .monarch-manual-note::before {
-    content: "🔒 ";
+    content: " ";
 }
 
 /* Modal error message */
@@ -730,3 +740,4 @@
         font-size: 14px;
     }
 }
+
